@@ -49,9 +49,14 @@ points deserve fixing at the implementation level:
   time is a tracked budget, not an accident (jq 1.6's 10× startup
   regression is the cautionary tale).
 
-What jig will **not** do: break jq programs. Language extensions are
-additive-only (e.g. a planned `??` that — unlike `//` — doesn't treat
-`false` as missing).
+jig is **dual-mode**: the default **jq mode** matches jq 1.7's observable
+behavior, so `alias jq=jig` keeps your scripts working. An opt-in **humane
+mode** (`--humane`, or `# jig:humane` at the top of a filter) turns on the
+saner-but-incompatible semantics — e.g. `//` stops treating `false` as
+missing, and iterating `null` yields nothing instead of erroring. Breaking
+changes only ever live behind that switch, and each one is enumerated in
+[docs/jq-compat.md](docs/jq-compat.md). The `??` nullish operator is additive
+and available in both modes.
 
 ## Usage
 

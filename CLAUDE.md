@@ -74,9 +74,12 @@ CI（build.yml, macos-15 + full Xcode）が回す。turn を終える前に
 
 ## Non-obvious constraints — read before editing
 
-- **jq 互換契約**: 既存の jq プログラムの観測可能な動作を変えない。許す
-  変更は (a) 診断の改善（semantics 不変）と (b) additive な拡張のみ。
-  判断基準・意図的乖離の一覧・機能ロードマップは
+- **jq 互換契約 (dual-mode)**: **jq モード（既定）** は jq 1.7 と観測可能な
+  動作が一致 — 既存 jq プログラムは無変更で動き、`alias jq=jig` が成立する。
+  **humane モード（`--humane` / `# jig:humane` pragma / `JIG_MODE=humane`）**
+  だけが意味論を意図的に直す。jq モードは決して乖離しない。許す変更は
+  (a) 診断改善（両モード）、(b) additive 拡張（両モード）、(c) humane モードで
+  **列挙された** 破壊的変更のみ。判断基準・モード差分表・ロードマップは
   [docs/jq-compat.md](docs/jq-compat.md)。互換に触れる変更はそこを
   **同一 PR で** 更新する。
 - **generator semantics**: filter は「1 入力値 → 出力値ストリーム」。
@@ -111,8 +114,9 @@ CI（build.yml, macos-15 + full Xcode）が回す。turn を終える前に
 - **ネットワークアクセス**: しない。fetch は上流（curl 等）の責務。
 - **YAML / TOML 入力**: 当面しない（yq の領分）。やるなら別 frontend として
   起票してから。
-- **jq と非互換な独自構文**: しない。言語拡張は additive のみ
-  （docs/jq-compat.md の契約 ⑤）。
+- **jq と非互換な挙動をデフォルトに入れない**: 破壊的な意味論変更は
+  humane モードの中だけ（docs/jq-compat.md のモード差分表に列挙）。jq モードの
+  additive 拡張は jq が syntax error にする構文のみ（契約 ④）。
 
 ## CLI surface
 
