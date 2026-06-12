@@ -8,11 +8,19 @@
 //     chat app, shell quoting that swallowed the quotes, …) — never
 //     bison-speak like "unexpected INVALID_CHARACTER, expecting $end"
 //
-// Grammar (v0 — the supported subset; growth roadmap in docs/jq-compat.md):
+// Grammar (v0 — the supported subset; growth roadmap in docs/jq-compat.md).
+// Precedence runs loosest→tightest down the chain, mirroring jq's parser.y:
 //
 //   program  := pipe
 //   pipe     := comma ( "|" comma )*          # | binds loosest, like jq
-//   comma    := postfix ( "," postfix )*
+//   comma    := alt ( "," alt )*
+//   alt      := or ( ("//" | "??") or )*      # // ??  (additive ?? alongside)
+//   or       := and ( "or" and )*
+//   and      := cmp ( "and" cmp )*
+//   cmp      := add ( ("==" "!=" "<=" ">=" "<" ">") add )?   # NONASSOC: at most one
+//   add      := mul ( ("+" | "-") mul )*
+//   mul      := unary ( ("*" | "/" | "%") unary )*
+//   unary    := "-" unary | postfix           # unary minus (NEG)
 //   postfix  := primary suffix*
 //   primary  := "." ( IDENT "?"? )?           # . | .foo
 //            |  "(" pipe ")"
@@ -91,17 +99,18 @@ private struct FilterParser {
     }
 
     // `//` (alternative) and `??` (nullish) bind tighter than `,` and `|`,
-    // looser than field/index suffixes — jq precedence for `//`.
+    // looser than `or` / `and` / comparison / arithmetic — jq precedence for
+    // `//`.
     private mutating func parseAlt() throws -> Filter {
-        var lhs = try parsePostfix()
+        var lhs = try parseOr()
         while true {
             skipWhitespace()
             let opStart = pos
             if matchOperator("//") {
-                let rhs = try parsePostfix()
+                let rhs = try parseOr()
                 lhs = .alternative(lhs, rhs, span: SourceSpan(opStart, opStart + 2))
             } else if matchOperator("??") {
-                let rhs = try parsePostfix()
+                let rhs = try parseOr()
                 lhs = .nullish(lhs, rhs, span: SourceSpan(opStart, opStart + 2))
             } else {
                 return lhs
@@ -109,11 +118,132 @@ private struct FilterParser {
         }
     }
 
-    /// Consume `op` if it's exactly next. Used for `//` / `??`.
+    private mutating func parseOr() throws -> Filter {
+        var lhs = try parseAnd()
+        while true {
+            skipWhitespace()
+            let opStart = pos
+            if matchKeyword("or") {
+                let rhs = try parseAnd()
+                lhs = .binary(.or, lhs, rhs, span: SourceSpan(opStart, opStart + 2))
+            } else {
+                return lhs
+            }
+        }
+    }
+
+    private mutating func parseAnd() throws -> Filter {
+        var lhs = try parseComparison()
+        while true {
+            skipWhitespace()
+            let opStart = pos
+            if matchKeyword("and") {
+                let rhs = try parseComparison()
+                lhs = .binary(.and, lhs, rhs, span: SourceSpan(opStart, opStart + 3))
+            } else {
+                return lhs
+            }
+        }
+    }
+
+    // Comparison is NONASSOC in jq: `1 < 2 < 3` is an error, so we accept at
+    // most one comparison operator and let any trailing one fall through to a
+    // clean "unexpected" diagnostic.
+    private mutating func parseComparison() throws -> Filter {
+        let lhs = try parseAdditive()
+        skipWhitespace()
+        let opStart = pos
+        let op: BinOp?
+        // Two-char operators first so `<=`/`>=`/`==`/`!=` win over `<`/`>`/`=`.
+        if matchOperator("==") { op = .eq }
+        else if matchOperator("!=") { op = .ne }
+        else if matchOperator("<=") { op = .le }
+        else if matchOperator(">=") { op = .ge }
+        else if matchOperator("<") { op = .lt }
+        else if matchOperator(">") { op = .gt }
+        else { op = nil }
+        guard let op else { return lhs }
+        let rhs = try parseAdditive()
+        return .binary(op, lhs, rhs, span: SourceSpan(opStart, opStart + op.symbol.utf8.count))
+    }
+
+    private mutating func parseAdditive() throws -> Filter {
+        var lhs = try parseMultiplicative()
+        while true {
+            skipWhitespace()
+            let opStart = pos
+            if matchOperator("+") {
+                let rhs = try parseMultiplicative()
+                lhs = .binary(.add, lhs, rhs, span: SourceSpan(opStart, opStart + 1))
+            } else if peek() == UInt8(ascii: "-") {
+                pos += 1
+                let rhs = try parseMultiplicative()
+                lhs = .binary(.subtract, lhs, rhs, span: SourceSpan(opStart, opStart + 1))
+            } else {
+                return lhs
+            }
+        }
+    }
+
+    private mutating func parseMultiplicative() throws -> Filter {
+        var lhs = try parseUnary()
+        while true {
+            skipWhitespace()
+            let opStart = pos
+            if matchOperator("*") {
+                let rhs = try parseUnary()
+                lhs = .binary(.multiply, lhs, rhs, span: SourceSpan(opStart, opStart + 1))
+            } else if peek() == UInt8(ascii: "/") && peekAhead(1) != UInt8(ascii: "/") {
+                // A lone `/` is division; `//` is the alternative operator
+                // (handled higher up, so we must not eat its first slash).
+                pos += 1
+                let rhs = try parseUnary()
+                lhs = .binary(.divide, lhs, rhs, span: SourceSpan(opStart, opStart + 1))
+            } else if matchOperator("%") {
+                let rhs = try parseUnary()
+                lhs = .binary(.modulo, lhs, rhs, span: SourceSpan(opStart, opStart + 1))
+            } else {
+                return lhs
+            }
+        }
+    }
+
+    // Unary minus binds tighter than `*`/`/`/`%` (jq's NEG). `-3` is a number
+    // literal (so its source text round-trips); `-.x` / `-(…)` negate.
+    private mutating func parseUnary() throws -> Filter {
+        skipWhitespace()
+        if peek() == UInt8(ascii: "-") {
+            let next = peekAhead(1)
+            // `-` immediately before a digit stays a negative number literal.
+            if let n = next, (UInt8(ascii: "0")...UInt8(ascii: "9")).contains(n) {
+                return try parsePostfix()
+            }
+            let opStart = pos
+            pos += 1
+            let operand = try parseUnary()
+            return .neg(operand, span: SourceSpan(opStart, pos))
+        }
+        return try parsePostfix()
+    }
+
+    /// Consume `op` if it's exactly next. Used for symbolic operators
+    /// (`//`, `??`, `==`, `+`, …).
     private mutating func matchOperator(_ op: String) -> Bool {
         let want = Array(op.utf8)
         guard pos + want.count <= bytes.count else { return false }
         for (i, b) in want.enumerated() where bytes[pos + i] != b { return false }
+        pos += want.count
+        return true
+    }
+
+    /// Consume a word operator (`and` / `or`) only on a word boundary, so
+    /// `order` / `android` are NOT mistaken for the keyword.
+    private mutating func matchKeyword(_ kw: String) -> Bool {
+        let want = Array(kw.utf8)
+        guard pos + want.count <= bytes.count else { return false }
+        for (i, b) in want.enumerated() where bytes[pos + i] != b { return false }
+        let after = pos + want.count
+        if after < bytes.count && isIdentByte(bytes[after], first: false) { return false }
         pos += want.count
         return true
     }
@@ -145,6 +275,12 @@ private struct FilterParser {
             if let name = scanIdent() {
                 let optional = scanQuestion()
                 return .field(name: name, optional: optional, span: SourceSpan(dotStart, pos))
+            }
+            // `.5` is the number 0.5 (jq's leading-dot decimal), not `.`
+            // (identity) followed by a stray digit.
+            if let d = peek(), (UInt8(ascii: "0")...UInt8(ascii: "9")).contains(d) {
+                pos = dotStart
+                return .literal(.number(try parseNumberLiteral()))
             }
             return .identity
         case UInt8(ascii: "("):
@@ -260,20 +396,33 @@ private struct FilterParser {
     private mutating func parseNumberLiteral() throws -> JigNumber {
         let start = pos
         if peek() == UInt8(ascii: "-") { pos += 1 }
-        func digits() { while let d = peek(), (UInt8(ascii: "0")...UInt8(ascii: "9")).contains(d) { pos += 1 } }
-        guard let d = peek(), (UInt8(ascii: "0")...UInt8(ascii: "9")).contains(d) else {
+        @discardableResult
+        func digits() -> Bool {
+            let s = pos
+            while let d = peek(), (UInt8(ascii: "0")...UInt8(ascii: "9")).contains(d) { pos += 1 }
+            return pos > s
+        }
+        // An integer part, a fractional part, or both — jq accepts the
+        // leading-dot form `.5` (= 0.5), so neither is individually required.
+        let hadInt = digits()
+        var hadFrac = false
+        if peek() == UInt8(ascii: ".") { pos += 1; hadFrac = digits() }
+        guard hadInt || hadFrac else {
             throw unexpected("in a number — expected a digit")
         }
-        digits()
-        if peek() == UInt8(ascii: ".") { pos += 1; digits() }
         if let e = peek(), e == UInt8(ascii: "e") || e == UInt8(ascii: "E") {
             pos += 1
             if let s = peek(), s == UInt8(ascii: "+") || s == UInt8(ascii: "-") { pos += 1 }
             digits()
         }
-        let text = String(decoding: bytes[start..<pos], as: UTF8.self)
+        let raw = String(decoding: bytes[start..<pos], as: UTF8.self)
+        // Normalize a leading-dot decimal so Double can parse it and the
+        // printed form matches jq (`.5` → `0.5`).
+        var text = raw
+        if text.hasPrefix(".") { text = "0" + text }
+        else if text.hasPrefix("-.") { text = "-0" + text.dropFirst() }
         guard let value = Double(text) else {
-            throw FilterParseError(message: "invalid number \"\(text)\"",
+            throw FilterParseError(message: "invalid number \"\(raw)\"",
                                    span: SourceSpan(start, pos))
         }
         return JigNumber(literal: text, double: value)
@@ -327,6 +476,12 @@ private struct FilterParser {
     // MARK: lexing helpers
 
     private func peek() -> UInt8? { pos < bytes.count ? bytes[pos] : nil }
+
+    /// The byte `n` positions ahead of the cursor without moving it.
+    private func peekAhead(_ n: Int) -> UInt8? {
+        let i = pos + n
+        return i < bytes.count ? bytes[i] : nil
+    }
 
     private mutating func skipWhitespace() {
         while let b = peek() {
@@ -416,6 +571,11 @@ private struct FilterParser {
                 message: "unexpected \"$\" \(context)",
                 span: span,
                 hint: "$variables are not implemented yet (docs/jq-compat.md roadmap) — also check the shell didn't expand $name before jig saw it (use single quotes)")
+        case UInt8(ascii: "="):
+            return FilterParseError(
+                message: "unexpected \"=\" \(context)",
+                span: span,
+                hint: "for equality use == (assignment = / |= / += is on the roadmap, docs/jq-compat.md step 5)")
         default:
             let display: String
             if b >= 0x21 && b < 0x7F {

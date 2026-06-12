@@ -90,6 +90,9 @@ private func formatNumber(_ n: JigNumber) -> String {
         // jq clamps infinities to the largest finite double.
         return d > 0 ? "1.7976931348623157e+308" : "-1.7976931348623157e+308"
     }
+    // A computed negative zero keeps its sign (jq: 0 * -1 → -0); the integral
+    // fast path below would otherwise drop it via Int64(-0.0) == 0.
+    if d == 0, d.sign == .minus { return "-0" }
     // Computed integral doubles print as integers (jq: 2+2 → 4).
     if d == d.rounded(), abs(d) < 1e15 {
         return String(Int64(d))

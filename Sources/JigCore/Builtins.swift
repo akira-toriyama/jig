@@ -112,8 +112,9 @@ private func addOf(_ v: JigValue, _ span: SourceSpan) throws -> JigValue {
 }
 
 /// jq `+`: null is identity; numbers add; strings/arrays concatenate;
-/// objects merge (right wins). Mixed types error.
-private func addValues(_ a: JigValue, _ b: JigValue, _ span: SourceSpan) throws -> JigValue {
+/// objects merge (right wins). Mixed types error. Shared by the `add` builtin
+/// and the `+` operator (Operators.swift).
+func addValues(_ a: JigValue, _ b: JigValue, _ span: SourceSpan) throws -> JigValue {
     switch (a, b) {
     case (.null, _): return b
     case (_, .null): return a
@@ -131,8 +132,8 @@ private func addValues(_ a: JigValue, _ b: JigValue, _ span: SourceSpan) throws 
         }
         return .object(merged)
     default:
-        throw EvalError(message: "cannot add \(a.typeName) and \(b.typeName)", span: span,
-                        hint: "+ needs matching types (number+number, string+string, array+array, object+object)")
+        throw opError(a, b, "added", span,
+                      hint: "+ works on matching types (number, string, array, object), or with null")
     }
 }
 

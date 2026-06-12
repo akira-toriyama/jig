@@ -106,6 +106,29 @@ public func evaluate(_ filter: Filter, on input: JigValue, mode: JigMode = .jq) 
 
     case .call(let name, let args, let span):
         return try evalCall(name, args, on: input, mode: mode, span: span)
+
+    case .binary(let op, let lhs, let rhs, let span):
+        // `and` / `or` short-circuit on the left and yield booleans.
+        if op.isLogical {
+            return try evalLogical(op, lhs, rhs, on: input, mode: mode)
+        }
+        // Arithmetic / comparison: cartesian product of the two streams. jq
+        // desugars `a OP b` to `(b) as $b | (a) as $a | $a OP $b`, so the RHS
+        // is the outer loop (and is evaluated first — errors there short out
+        // before the LHS runs).
+        let rs = try evaluate(rhs, on: input, mode: mode)
+        let ls = try evaluate(lhs, on: input, mode: mode)
+        var out: [JigValue] = []
+        out.reserveCapacity(rs.count * ls.count)
+        for r in rs {
+            for l in ls {
+                out.append(try applyBinary(op, l, r, span))
+            }
+        }
+        return out
+
+    case .neg(let inner, let span):
+        return try negate(try evaluate(inner, on: input, mode: mode), span)
     }
 }
 
