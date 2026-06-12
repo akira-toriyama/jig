@@ -145,6 +145,30 @@ syntax error になる構文か、humane モードに限定するので互換は
 > 受理する（jq スクリプト互換を壊さず、JS 利用者の発見性を上げる）。
 > conformance は jq 名で測る。
 
+## 代替ツール survey からの設計アイデア（additive）
+
+GitHub `json` topic + 代替ツール（fx / gron / JSONata / JMESPath / dasel /
+yq / jnv / jless / nushell …）の調査で抽出した、**jq 互換を壊さない**追加
+アイデア。区分は [追加]=両モード / [humane]=opt-in。
+
+| アイデア | 由来 | コスト | 区分 |
+|---|---|---|---|
+| **`--js` ECMAScript 式モード**（`x`/`this` = 入力、`jig --js '.users.map(u=>u.name)'`）。JavaScriptCore (`JSContext`) は macOS SDK 同梱なので **追加依存ゼロ**。JS/TS native に最大の価値 | fx, jello | 大 | [humane] |
+| **`--gron` / `--ungron`** flatten（`json.a[0] = "x";` 形式で grep/diff 可能、array index の null 埋めで round-trip） | gron | 小〜中 | [追加] |
+| **path 付きエラー**（`.users[3].roles` が null、の形で失敗した入力パスを表示） | jq pain #1, gojq | 中 | [追加]（診断基盤の延長） |
+| `--yaml` / `--toml` I/O（同じ engine で config を扱う） | gojq, yq, dasel | 中 | [追加] |
+| JSONata 風 builtin（`avg` / `group_by_key` / `order_by(f;"desc")` / `~>` chain = `thru`） | JSONata, JMESPath | 小〜中 | [追加] |
+| in-place 編集（`-i` write-back + `set` / `del` over path） | dasel, yq | 中 | [追加] |
+| 再帰降下 / filter projection sugar（`..key`, `[?(.age>30)]`） | JSONPath, JMESPath | 中 | [humane]（`..` は jq と衝突） |
+| TUI explorer（`jig -i`: tree view + live filter + path 補完） | jnv, fx, jless | 大 | [humane]（別 surface） |
+
+> 最有力 3 つ: **path 付きエラー**（日次価値・低リスク、診断基盤の延長）、
+> **`--gron`**（小コストで explorer 化）、**`--js`**（JS native への独自
+> 価値、JavaScriptCore で依存ゼロ）。
+>
+> 参考実装: **gojq**（最も読みやすい full 再実装）、**jaq**（定義された
+> jq semantics・数値保存）、**gron**（flatten/round-trip アルゴリズム）。
+
 ### 静的 Linux 配布（nice-to-have）
 
 JigCore は Foundation 非依存を維持（Log.swift のみ例外、JigApp は
