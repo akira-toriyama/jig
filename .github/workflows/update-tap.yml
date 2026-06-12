@@ -1,0 +1,73 @@
+name: update-tap
+
+on:
+  release:
+    types: [released]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  bump:
+    runs-on: ubuntu-latest
+    if: github.event.release.draft == false
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Resolve tag + tarball SHA-256
+        id: meta
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          tag=$(gh api repos/${{ github.repository }}/releases/latest --jq .tag_name)
+          url="https://github.com/${{ github.repository }}/archive/refs/tags/${tag}.tar.gz"
+          sha=$(curl -sL "$url" | shasum -a 256 | awk '{print $1}')
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          echo "url=$url" >> "$GITHUB_OUTPUT"
+          echo "sha=$sha" >> "$GITHUB_OUTPUT"
+
+      - name: Update homebrew-tap
+        env:
+          GH_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+          NEW_URL: ${{ steps.meta.outputs.url }}
+          NEW_SHA: ${{ steps.meta.outputs.sha }}
+          NEW_TAG: ${{ steps.meta.outputs.tag }}
+        run: |
+          # HOMEBREW_TAP_TOKEN must be a fine-grained PAT with contents:write
+          # on akira-toriyama/homebrew-tap. Missing → no-op cleanly.
+          if [ -z "${GH_TOKEN:-}" ]; then
+            echo "HOMEBREW_TAP_TOKEN missing — skipping tap bump"
+            exit 0
+          fi
+
+          git clone "https://x-access-token:${GH_TOKEN}@github.com/akira-toriyama/homebrew-tap.git" tap
+          formula="tap/Formula/jig.rb"
+          if [ ! -f "$formula" ]; then
+            echo "$formula not found — tap repo missing the formula; aborting"
+            echo "(first release: copy packaging/homebrew/jig.rb into the tap manually)"
+            exit 1
+          fi
+
+          # SURGICAL update: only url + sha256 lines change.
+          sed -i -E \
+            -e "s|url \"https://github.com/akira-toriyama/jig/archive/refs/tags/v[0-9.]+\\.tar\\.gz\"|url \"${NEW_URL}\"|" \
+            -e "s|sha256 \"[a-f0-9]{64}\"|sha256 \"${NEW_SHA}\"|" \
+            "$formula"
+
+          cd tap
+          if git diff --quiet Formula/jig.rb; then
+            echo "formula already at ${NEW_TAG} — no bump needed"
+            exit 0
+          fi
+          diff_stat=$(git diff --numstat Formula/jig.rb | awk '{print $1"+"$2}')
+          if [ "$diff_stat" != "2+2" ]; then
+            echo "unexpected diff shape ($diff_stat) — aborting"
+            git --no-pager diff Formula/jig.rb
+            exit 1
+          fi
+          git config user.name "jig-release-bot"
+          git config user.email "jig-release-bot@users.noreply.github.com"
+          git add Formula/jig.rb
+          git commit -m ":rocket: chore(formula): bump jig to ${NEW_TAG}"
+          git push

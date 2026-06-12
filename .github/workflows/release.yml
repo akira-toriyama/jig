@@ -1,0 +1,98 @@
+name: Release
+
+# Rolling-draft model. Push to main → git-cliff computes the next version
+# and creates/updates a single DRAFT release with the built `jig` binary.
+# Publish manually in the GitHub UI to create the tag and trigger
+# update-tap.yml. Mirrors facet / chord / glance / perch.
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "Preview only (no draft; just artifacts)"
+        type: boolean
+        default: false
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: maxim-lobanov/setup-xcode@v1
+        with:
+          xcode-version: latest-stable
+
+      - name: Install git-cliff
+        uses: taiki-e/install-action@v2
+        with:
+          tool: git-cliff@2
+
+      - name: Compute next version
+        id: cliff
+        run: |
+          NEXT=$(git cliff --bumped-version 2>/dev/null || echo "")
+          # git-cliff は cliff.toml `tag_pattern = "v[0-9]*"` の影響で
+          # 先頭に v が付くことがある。後段の `tag="v$NEXT"` と二重化する
+          # ので、ここで剥がして純粋な semver にする。
+          NEXT="${NEXT#v}"
+          if [ -z "$NEXT" ] || [ "$NEXT" = "0.0.0" ]; then
+            echo "no version bump from recent commits — nothing to release"
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          echo "next=$NEXT" >> "$GITHUB_OUTPUT"
+          {
+            echo "notes<<__EOF__"
+            git cliff --unreleased --tag "$NEXT" --strip header
+            echo
+            echo "## Install"
+            echo
+            echo "**Homebrew:**"
+            echo
+            echo '```sh'
+            echo "brew install akira-toriyama/tap/jig"
+            echo '```'
+            echo
+            echo "**Prebuilt (\`jig\` below):** ad-hoc signed (not notarized)."
+            echo "macOS quarantines downloads, so on first use:"
+            echo
+            echo '```sh'
+            echo 'xattr -d com.apple.quarantine ./jig'
+            echo 'chmod +x ./jig'
+            echo '```'
+            echo "__EOF__"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Build artifacts
+        if: steps.cliff.outputs.skip != 'true'
+        run: |
+          ./build.sh
+          cd bin
+          shasum -a 256 jig > jig.sha256
+
+      - name: Create / update draft release
+        if: steps.cliff.outputs.skip != 'true' && inputs.dry_run != true
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          NEXT: ${{ steps.cliff.outputs.next }}
+          NOTES: ${{ steps.cliff.outputs.notes }}
+        run: |
+          tag="v$NEXT"
+          if gh release view "$tag" >/dev/null 2>&1; then
+            gh release edit "$tag" --notes "$NOTES" --draft
+            gh release upload "$tag" bin/jig bin/jig.sha256 --clobber
+          else
+            gh release create "$tag" --draft --title "$tag" --notes "$NOTES" \
+              bin/jig bin/jig.sha256
+          fi

@@ -1,0 +1,16 @@
+# build artifacts
+/bin/
+/.build/
+
+# release artifacts
+/dist/
+/RELEASE_NOTES.md
+
+# persistent signing identity (per-machine)
+.signing-id
+
+# macOS
+.DS_Store
+
+# Claude Code harness runtime
+.claude/

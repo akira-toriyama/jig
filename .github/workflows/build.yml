@@ -1,0 +1,36 @@
+name: build
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  build:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+
+      # macos runners can default to an older Xcode; the package needs the
+      # Swift 6 toolchain. Pin the latest stable Xcode.
+      - uses: maxim-lobanov/setup-xcode@v1
+        with:
+          xcode-version: latest-stable
+
+      - name: Show toolchain
+        run: swift --version
+
+      - name: Build (release)
+        run: ./build.sh
+
+      # XCTest needs full Xcode (CommandLineTools has none) — tests run
+      # here, not in the CLT-only local dev flow (CLAUDE.md). Covers the
+      # pure logic: JSON parser/writer, FilterParser, Evaluator, Args.
+      - name: Test
+        run: swift test
+
+      - name: Sanity check binary
+        run: |
+          file bin/jig && test -x bin/jig
+          ./bin/jig --version
+          echo '{"a":[1,2]}' | ./bin/jig -c '.a[]' | tr '\n' ' ' | grep -q '1 2'

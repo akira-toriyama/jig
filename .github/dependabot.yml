@@ -1,0 +1,26 @@
+# Dependabot config for jig.
+#
+# - github-actions: workflows pin third-party actions (checkout,
+#   setup-xcode, install-action, etc) by major version. Weekly update
+#   PRs keep them honest without flooding the inbox.
+# - swift: deliberately ABSENT — jig is a zero-dependency package
+#   (CLAUDE.md "Conventions"). Add the swift ecosystem block (grouped,
+#   weekly, same commit-message prefix) in the same PR that introduces
+#   the first SwiftPM dependency.
+#
+# Commit messages follow the gitmoji + Conventional Commits convention
+# so commit-lint stays green on dependabot PRs.
+
+version: 2
+updates:
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: ":arrow_up: chore"
+      include: "scope"
+    labels:
+      - "dependencies"
+      - "github-actions"
