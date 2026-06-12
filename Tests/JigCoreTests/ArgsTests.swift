@@ -52,4 +52,30 @@ final class ArgsTests: XCTestCase {
             XCTAssertEqual(error as? ArgsParseError, .missingFilter)
         }
     }
+
+    // MARK: --humane flag + subcommands
+
+    func testHumaneFlag() throws {
+        XCTAssertEqual(try parseArgs(["--humane", ".a"]),
+                       .run(Args(filter: ".a", humane: true)))
+    }
+
+    func testExplainSubcommand() throws {
+        XCTAssertEqual(try parseArgs(["explain", ".a"]),
+                       .explain(Args(filter: ".a")))
+        // flags follow the subcommand
+        XCTAssertEqual(try parseArgs(["explain", "--humane", ".a"]),
+                       .explain(Args(filter: ".a", humane: true)))
+    }
+
+    func testCheckSubcommand() throws {
+        XCTAssertEqual(try parseArgs(["check", ".a.b"]),
+                       .check(Args(filter: ".a.b")))
+    }
+
+    func testLeadingDotIsNeverASubcommand() throws {
+        // A filter is the filter, even if it spells a subcommand-ish word.
+        guard case .run(let a) = try parseArgs([".explain"]) else { return XCTFail() }
+        XCTAssertEqual(a.filter, ".explain")
+    }
 }

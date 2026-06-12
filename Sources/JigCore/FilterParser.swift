@@ -183,8 +183,17 @@ private struct FilterParser {
     private func peek() -> UInt8? { pos < bytes.count ? bytes[pos] : nil }
 
     private mutating func skipWhitespace() {
-        while let b = peek(), b == 0x20 || b == 0x09 || b == 0x0A || b == 0x0D {
-            pos += 1
+        while let b = peek() {
+            if b == 0x20 || b == 0x09 || b == 0x0A || b == 0x0D {
+                pos += 1
+            } else if b == UInt8(ascii: "#") {
+                // jq-style comment: `#` to end of line. Doubles as the
+                // carrier for the `# jig:humane` mode pragma (Mode.swift
+                // pre-scans for it; here we just skip it).
+                while let c = peek(), c != 0x0A { pos += 1 }
+            } else {
+                return
+            }
         }
     }
 

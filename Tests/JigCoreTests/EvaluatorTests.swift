@@ -74,6 +74,29 @@ final class EvaluatorTests: XCTestCase {
         XCTAssertEqual(try run(".items[]?", on: #"{}"#), [])
     }
 
+    // MARK: H2 — humane mode makes null iteration the empty stream
+
+    func testHumaneIterateOverNullIsEmpty() throws {
+        let filter = try parseFilter(".items[]")
+        let input = try parseOneJSON(#"{}"#)
+        XCTAssertEqual(try evaluate(filter, on: input, mode: .humane), [])
+        // jq mode still errors.
+        XCTAssertThrowsError(try evaluate(filter, on: input, mode: .jq))
+    }
+
+    func testHumaneIterateOverScalarStillErrors() throws {
+        // H2 only relaxes null — a scalar is still a hard error in humane mode.
+        let filter = try parseFilter(".[]")
+        let input = try parseOneJSON("42")
+        XCTAssertThrowsError(try evaluate(filter, on: input, mode: .humane))
+    }
+
+    func testHumaneDoesNotChangeArrayIteration() throws {
+        let filter = try parseFilter(".[]")
+        let input = try parseOneJSON("[1,2]")
+        XCTAssertEqual(try evaluate(filter, on: input, mode: .humane).count, 2)
+    }
+
     func testPipeFeedsEveryOutput() throws {
         XCTAssertEqual(
             try run(".users[] | .name",

@@ -29,16 +29,23 @@ enum JigApp {
         case .showHelp: printHelp(); exit(0)
         case .showVersion: print("jig \(JigVersion.current)"); exit(0)
         case .run(let args): run(args)
+        case .explain(let args): explainFilter(args)
+        case .check(let args): checkFilter(args)
         }
     }
 
-    /// Exit codes mirror jq: 0 ok, 2 usage/system error, 3 program compile
-    /// error, 5 a runtime error occurred (later inputs still processed).
+    /// Resolve the effective mode from flag / pragma / env (Mode.swift).
+    static func mode(for args: Args) -> JigMode {
+        resolveMode(humaneFlag: args.humane,
+                    program: args.filter,
+                    env: ProcessInfo.processInfo.environment["JIG_MODE"])
+    }
+
+    /// Compile `args.filter` or print a diagnostic and exit(3).
     @MainActor
-    static func run(_ args: Args) {
-        let filter: Filter
+    static func compileOrExit(_ args: Args) -> Filter {
         do {
-            filter = try parseFilter(args.filter)
+            return try parseFilter(args.filter)
         } catch let e as FilterParseError {
             stderrLine(Diagnostic(e).render(program: args.filter))
             exit(3)
@@ -46,7 +53,34 @@ enum JigApp {
             stderrLine("jig: \(error)")
             exit(3)
         }
-        Log.debug("filter parsed: \(args.filter)")
+    }
+
+    /// `jig explain <filter>` — describe the filter in plain language + a
+    /// rough JavaScript analogy. Compile-only; reads no input.
+    @MainActor
+    static func explainFilter(_ args: Args) {
+        let filter = compileOrExit(args)
+        print(explain(filter, source: args.filter, mode: mode(for: args)))
+        exit(0)
+    }
+
+    /// `jig check <filter>` — CI gate: compile-only, silent stdout on
+    /// success (exit 0), diagnostic + exit 3 on a compile error.
+    @MainActor
+    static func checkFilter(_ args: Args) {
+        let filter = compileOrExit(args)
+        _ = filter
+        stderrLine("jig: filter ok (\(mode(for: args).label))")
+        exit(0)
+    }
+
+    /// Exit codes mirror jq: 0 ok, 2 usage/system error, 3 program compile
+    /// error, 5 a runtime error occurred (later inputs still processed).
+    @MainActor
+    static func run(_ args: Args) {
+        let filter = compileOrExit(args)
+        let mode = mode(for: args)
+        Log.debug("filter parsed: \(args.filter) [\(mode.label)]")
 
         let style: JSONStyle = args.compactOutput ? .compact : .pretty
         var hadRuntimeError = false
@@ -55,7 +89,7 @@ enum JigApp {
         forEachInput(args) { input in
             inputIndex += 1
             do {
-                for output in try evaluate(filter, on: input) {
+                for output in try evaluate(filter, on: input, mode: mode) {
                     if args.rawOutput, case .string(let s) = output {
                         print(s)
                     } else {
@@ -141,6 +175,8 @@ enum JigApp {
 
         USAGE
           some-cmd | jig [flags] <filter> [files...]
+          jig explain [flags] <filter>     describe the filter (+ JS analogy)
+          jig check   [flags] <filter>     compile-only CI gate (exit 0 / 3)
 
         FILTER (v0 subset — full jq language is the roadmap, docs/jq-compat.md)
           .                identity
@@ -150,11 +186,14 @@ enum JigApp {
           f | g            pipe: outputs of f feed g
           f , g            both: outputs of f, then outputs of g
           ( ... )          grouping
+          # ...            comment to end of line
 
         FLAGS
           -c, --compact-output   one line per output (default: 2-space pretty)
           -r, --raw-output       print top-level strings without quotes
           -n, --null-input       don't read input; run the filter once on null
+          --humane               humane mode: fix jq's semantic warts
+                                 (also: # jig:humane pragma, or JIG_MODE=humane)
           -h, --help             this help
           -V, --version          version
 
