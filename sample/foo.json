@@ -1,0 +1,11 @@
+{
+  "service": "jig",
+  "version": "0.1.0",
+  "tags": ["json", "jq", "swift", "cli"],
+  "maintainers": [
+    { "name": "ann", "active": true,  "commits": 128 },
+    { "name": "bob", "active": false, "commits": 42 },
+    { "name": "cy",  "active": true,  "commits": 7 }
+  ],
+  "repo": { "stars": 0, "license": "MIT", "big_id": 12345678901234567890 }
+}

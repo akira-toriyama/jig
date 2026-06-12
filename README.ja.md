@@ -59,15 +59,65 @@ nullish な `??` 演算子は additive で両モードで使える。
 ## Usage
 
 ```sh
-curl -s https://api.example.com/users | jig '.[] | .name'
-jig -r '.items[0].id' data.json
-echo '{"a":{"b":[1,2,3]}}' | jig -c '.a.b[]'
+curl -s https://api.example.com/users | jig '.[] | .name'   # パイプから
+jig -r '.maintainers[].name' sample/foo.json                # ファイルから
+cat sample/foo.json | jig -c '.tags' -                      # `-` = stdin
 ```
 
-現在対応の filter 構文 (v0): `.` `.foo` `.foo?` `.[0]` `.[-1]` `.[]`
-`.[]?` `|` `,` `( … )` — 加えて `-c` / `-r` / `-n`、複数ドキュメント入力
-stream（NDJSON）、jq 互換 exit code（0 / 2 usage / 3 compile /
-5 runtime）。全体像とロードマップ: [docs/jq-compat.md](docs/jq-compat.md)。
+### Try it
+
+リポジトリに 2 つのサンプル ([`sample/`](sample/)) を同梱:
+
+```console
+$ jig -r '.maintainers[] | .name' sample/foo.json
+ann
+bob
+cy
+
+$ jig -c '.maintainers | map(select(.active))' sample/foo.json
+[{"name":"ann","active":true,"commits":128},{"name":"cy","active":true,"commits":7}]
+
+$ jig '.maintainers | map(.commits) | add' sample/foo.json
+177
+
+$ jig '.repo.big_id' sample/foo.json          # 64bit id をそのまま保存
+12345678901234567890
+
+# // は false+null を落とす / ?? (nullish) は false を残す — bar.json で比較
+$ jig -c 'map(.shipped // "pending")' sample/bar.json
+["pending",true,"pending"]
+$ jig -c 'map(.shipped ?? "pending")' sample/bar.json
+["pending",true,false]
+
+$ jig explain '.maintainers[] | .name'        # 平易な解説 + JS 等価
+  …
+  ≈ JS: input.maintainers.map(x => x.name)
+```
+
+### 現在対応 (v0)
+
+`.` `.foo` `.foo?` `.[0]` `.[-1]` `.[]` `.[]?` `|` `,` `( … )` `# コメント`、
+scalar リテラル (`42` `"s"` `true` `false` `null`)、`a // b`、`a ?? b`、
+builtin `length keys keys_unsorted type not reverse add empty map(f)
+select(f) has(k)`（ECMAScript alias `typeof` / `filter`）。subcommand
+`jig explain` / `jig check`。全体像とロードマップ:
+[docs/jq-compat.md](docs/jq-compat.md)。
+
+## Input / Output
+
+jig は Unix filter で、[clig.dev](https://clig.dev) に沿う:
+
+- **入力** — JSON を **stdin** / **ファイル引数** / `-`(stdin) から読む。
+  1 つの入力に whitespace 区切りの複数ドキュメント(NDJSON 含む)を置け、
+  順に処理する。
+- **stdout** — JSON 結果を 1 値 1 行で出力。既定は 2-space pretty、`-c` で
+  compact、`-r` で top-level 文字列を raw(引用符なし)。
+- **stderr** — diagnostic 専用(エラー・hint・`JIG_DEBUG` trace)。stdout の
+  データを汚さない。
+- **exit code**(jq 互換): `0` ok ・ `2` usage / 読めない・壊れた入力 ・
+  `3` filter compile error ・ `5` 実行時エラー発生。
+- **入力が無い**(対話端末)ときはハングせず案内を表示 — パイプ・ファイル・
+  `-n` のいずれかを使う。
 
 ## Install
 
