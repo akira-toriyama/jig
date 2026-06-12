@@ -61,12 +61,40 @@ private func jsChain(_ stages: [Filter], subject: String) -> String {
             let ja = jsChain(flattenPipe(a), subject: expr)
             let jb = jsChain(flattenPipe(b), subject: expr)
             return "[\(ja), \(jb)]"
+        case .literal(let v):
+            // A literal ignores its input — it replaces the running subject.
+            expr = writeJSON(v, style: .compact)
+        case .alternative(let a, let b, _):
+            // jq `//` ≈ JS falsy-`||`; humane `//` and `??` ≈ JS nullish-`??`.
+            return "(\(jsChain(flattenPipe(a), subject: expr)) || \(jsChain(flattenPipe(b), subject: expr)))"
+        case .nullish(let a, let b, _):
+            return "(\(jsChain(flattenPipe(a), subject: expr)) ?? \(jsChain(flattenPipe(b), subject: expr)))"
+        case .call(let name, let args, _):
+            expr = jsCall(name, args, subject: expr)
         case .pipe:
             break  // already flattened
         }
         i += 1
     }
     return expr
+}
+
+/// JS analogy for a builtin call (best-effort; used only by `jig explain`).
+private func jsCall(_ name: String, _ args: [Filter], subject: String) -> String {
+    func cb(_ f: Filter) -> String { "x => \(jsChain(flattenPipe(f), subject: "x"))" }
+    switch (name, args.count) {
+    case ("length", 0): return "\(subject).length"
+    case ("keys", 0), ("keys_unsorted", 0): return "Object.keys(\(subject))"
+    case ("type", 0), ("typeof", 0): return "typeof \(subject)"
+    case ("not", 0): return "!\(subject)"
+    case ("reverse", 0): return "[...\(subject)].reverse()"
+    case ("add", 0): return "\(subject).reduce((a, b) => a + b)"
+    case ("map", 1): return "\(subject).map(\(cb(args[0])))"
+    case ("select", 1), ("filter", 1): return "\(subject).filter(\(cb(args[0])))"
+    case ("has", 1): return "(\(render(args[0])) in \(subject))"
+    case ("empty", 0): return "[]"
+    default: return "\(subject)/* \(name) */"
+    }
 }
 
 /// Flatten a left-nested pipe chain into ordered stages. Non-pipe nodes are
@@ -82,8 +110,11 @@ private func containsIterate(_ filter: Filter) -> Bool {
     switch filter {
     case .iterate:
         return true
-    case .pipe(let a, let b), .comma(let a, let b):
+    case .pipe(let a, let b), .comma(let a, let b),
+         .alternative(let a, let b, _), .nullish(let a, let b, _):
         return containsIterate(a) || containsIterate(b)
+    case .call(_, let args, _):
+        return args.contains(where: containsIterate)
     default:
         return false
     }
@@ -116,6 +147,17 @@ private func phrase(_ filter: Filter, mode: JigMode) -> String {
         return base
     case .comma(let a, let b):
         return "emit two streams in order: (\(render(a))) then (\(render(b)))"
+    case .literal(let v):
+        return "produce the constant \(writeJSON(v, style: .compact))"
+    case .alternative(let a, let b, _):
+        return "alternative (//): use (\(render(a))); if it yields no usable value "
+            + "(\(mode == .humane ? "null/empty" : "false/null/empty")), fall back to (\(render(b)))"
+    case .nullish(let a, let b, _):
+        return "nullish (??): use (\(render(a))); only if that is null/empty, fall back to (\(render(b)))"
+    case .call(let name, let args, _):
+        return args.isEmpty
+            ? "call \(name)"
+            : "call \(name) with (\(args.map(render).joined(separator: "; ")))"
     case .pipe:
         // Unreached after flattenPipe; render defensively.
         return render(filter)
@@ -139,5 +181,13 @@ public func render(_ filter: Filter) -> String {
         return "\(render(a)) | \(render(b))"
     case .comma(let a, let b):
         return "\(render(a)), \(render(b))"
+    case .literal(let v):
+        return writeJSON(v, style: .compact)
+    case .alternative(let a, let b, _):
+        return "\(render(a)) // \(render(b))"
+    case .nullish(let a, let b, _):
+        return "\(render(a)) ?? \(render(b))"
+    case .call(let name, let args, _):
+        return args.isEmpty ? name : "\(name)(\(args.map(render).joined(separator: "; ")))"
     }
 }

@@ -92,6 +92,45 @@ public func evaluate(_ filter: Filter, on input: JigValue, mode: JigMode = .jq) 
 
     case .comma(let lhs, let rhs):
         return try evaluate(lhs, on: input, mode: mode) + (try evaluate(rhs, on: input, mode: mode))
+
+    case .literal(let value):
+        return [value]
+
+    case .alternative(let lhs, let rhs, _):
+        // jq `//`: drop false+null on the left; humane (H1): drop only null.
+        return try alternative(lhs, rhs, on: input, mode: mode, keepFalse: mode == .humane)
+
+    case .nullish(let lhs, let rhs, _):
+        // `??`: drop only null, both modes.
+        return try alternative(lhs, rhs, on: input, mode: mode, keepFalse: true)
+
+    case .call(let name, let args, let span):
+        return try evalCall(name, args, on: input, mode: mode, span: span)
+    }
+}
+
+/// Shared logic for `//` and `??`: keep the left outputs that survive the
+/// filter (always drop null; drop false too unless `keepFalse`); if none
+/// survive, fall back to the right side.
+private func alternative(_ lhs: Filter, _ rhs: Filter, on input: JigValue,
+                         mode: JigMode, keepFalse: Bool) throws -> [JigValue] {
+    let left = try evaluate(lhs, on: input, mode: mode)
+    let kept = left.filter { v in
+        switch v {
+        case .null: return false
+        case .bool(false): return keepFalse
+        default: return true
+        }
+    }
+    return kept.isEmpty ? try evaluate(rhs, on: input, mode: mode) : kept
+}
+
+/// jq truthiness: only `false` and `null` are falsy; everything else
+/// (including 0, "", [], {}) is truthy.
+func truthy(_ v: JigValue) -> Bool {
+    switch v {
+    case .null, .bool(false): return false
+    default: return true
     }
 }
 
