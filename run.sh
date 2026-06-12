@@ -26,6 +26,10 @@ case "${1:-}" in
         printf '%s' "$demo" | ./bin/jig -c '.owner.name, .big_id'
         echo "--- .missing[] (humane diagnostics; exit 5 is expected) --------"
         printf '%s' "$demo" | ./bin/jig '.missing[]' || true
+        echo "--- .missing[] --humane (H2: null iterates to nothing, exit 0) -"
+        printf '%s' "$demo" | ./bin/jig --humane '.missing[]'; echo "(no output, exit $?)"
+        echo "--- jig explain (plain-language + JS equivalent) ---------------"
+        ./bin/jig explain '.tags[] | .'
         ;;
     -i|--install)
         exec ./install.sh

@@ -122,20 +122,27 @@ CI（build.yml, macos-15 + full Xcode）が回す。turn を終える前に
 
 ```
 some-cmd | jig [flags] <filter> [files...]
+jig explain [flags] <filter>   # filter を平易な説明 + JS 等価で解説
+jig check   [flags] <filter>   # compile のみ (CI gate, exit 0/3)
 
 filter (v0 subset — 全 jq 言語へのロードマップは docs/jq-compat.md):
   .          identity            .foo .foo?   field access
   .[0] .[-1] index               .[] .[]?     iterate
   f | g      pipe                f , g        both
-  ( ... )    grouping
+  ( ... )    grouping            # ...        comment
 
 flags: -c/--compact-output  -r/--raw-output  -n/--null-input
-       -h/--help  -V/--version  --
+       --humane  -h/--help  -V/--version  --
 exit:  0 ok / 2 usage・input / 3 compile / 5 runtime
 ```
 
 flag 名は jq と完全一致させる（筋肉記憶の互換も互換のうち）。短 flag の
 結合（`-rc`）は未対応 — jq 側の挙動が不安定なため保留（jq-compat.md）。
+`explain` / `check` は jig 固有の subcommand（jq に subcommand は無い）で、
+先頭 token のときだけ認識（`.` 始まりの filter や `-flag` とは衝突しない）。
+**mode は `--humane` > `# jig:humane` pragma > `JIG_MODE=humane` > 既定 jq**
+の優先度で解決（resolveMode in Mode.swift）。`jig explain` は filter の
+おおよその JavaScript 等価を出す（JS/TS native 向けの学習ブリッジ）。
 
 ## Debugging
 

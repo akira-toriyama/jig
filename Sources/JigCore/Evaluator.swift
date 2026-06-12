@@ -22,7 +22,7 @@ public struct EvalError: Error, Equatable {
     }
 }
 
-public func evaluate(_ filter: Filter, on input: JigValue) throws -> [JigValue] {
+public func evaluate(_ filter: Filter, on input: JigValue, mode: JigMode = .jq) throws -> [JigValue] {
     switch filter {
     case .identity:
         return [input]
@@ -66,24 +66,32 @@ public func evaluate(_ filter: Filter, on input: JigValue) throws -> [JigValue] 
             return items
         case .object(let pairs):
             return pairs.map(\.value)
+        case .null where mode == .humane:
+            // H2 (docs/jq-compat.md mode-diff table): in humane mode a null
+            // flows through iteration as the empty stream instead of
+            // erroring — null already propagates through .foo / .[N], so
+            // this makes .[] consistent.
+            return []
         default:
             if optional { return [] }
             throw EvalError(
                 message: "cannot iterate over \(input.typeName)\(preview(input))",
                 span: span,
-                hint: "use .[]? to skip non-iterable inputs, or // [] to default missing data")
+                hint: input == .null
+                    ? "use .[]? , // [] , or run in humane mode (--humane) to treat null as empty"
+                    : "use .[]? to skip non-iterable inputs, or // [] to default missing data")
         }
 
     case .pipe(let lhs, let rhs):
         // Feed every output of lhs through rhs, concatenating the streams.
         var out: [JigValue] = []
-        for v in try evaluate(lhs, on: input) {
-            out.append(contentsOf: try evaluate(rhs, on: v))
+        for v in try evaluate(lhs, on: input, mode: mode) {
+            out.append(contentsOf: try evaluate(rhs, on: v, mode: mode))
         }
         return out
 
     case .comma(let lhs, let rhs):
-        return try evaluate(lhs, on: input) + (try evaluate(rhs, on: input))
+        return try evaluate(lhs, on: input, mode: mode) + (try evaluate(rhs, on: input, mode: mode))
     }
 }
 
