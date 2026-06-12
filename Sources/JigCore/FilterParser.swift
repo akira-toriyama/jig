@@ -95,8 +95,9 @@ private struct FilterParser {
         while let suffix = try parseSuffix() {
             // Suffixes chain onto the current filter via pipe — `.a.b` is
             // exactly `.a | .b`, which keeps the evaluator a single code
-            // path.
-            f = .pipe(f, suffix)
+            // path. Identity is elided (`. | .[]` ≡ `.[]`), so `.[]` parses
+            // as a bare iterate node, not pipe(identity, iterate).
+            f = (f == .identity) ? suffix : .pipe(f, suffix)
         }
         return f
     }
