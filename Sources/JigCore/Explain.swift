@@ -71,6 +71,13 @@ private func jsChain(_ stages: [Filter], subject: String) -> String {
             return "(\(jsChain(flattenPipe(a), subject: expr)) ?? \(jsChain(flattenPipe(b), subject: expr)))"
         case .call(let name, let args, _):
             expr = jsCall(name, args, subject: expr)
+        case .binary(let op, let a, let b, _):
+            // Both operands run on the same input (the running subject).
+            let ja = jsChain(flattenPipe(a), subject: expr)
+            let jb = jsChain(flattenPipe(b), subject: expr)
+            expr = "(\(ja) \(jsOp(op)) \(jb))"
+        case .neg(let inner, _):
+            expr = "-\(jsChain(flattenPipe(inner), subject: expr))"
         case .pipe:
             break  // already flattened
         }
@@ -97,6 +104,19 @@ private func jsCall(_ name: String, _ args: [Filter], subject: String) -> String
     }
 }
 
+/// JS operator spelling for a jq operator (best-effort; used by `jig explain`).
+/// jq's `==` is value equality and `and`/`or` are boolean, so they map to JS's
+/// strict/`&&`/`||` forms.
+private func jsOp(_ op: BinOp) -> String {
+    switch op {
+    case .eq: return "==="
+    case .ne: return "!=="
+    case .and: return "&&"
+    case .or: return "||"
+    default: return op.symbol  // + - * / % < <= > >= all match JS
+    }
+}
+
 /// Flatten a left-nested pipe chain into ordered stages. Non-pipe nodes are
 /// a single stage.
 func flattenPipe(_ filter: Filter) -> [Filter] {
@@ -111,8 +131,11 @@ private func containsIterate(_ filter: Filter) -> Bool {
     case .iterate:
         return true
     case .pipe(let a, let b), .comma(let a, let b),
-         .alternative(let a, let b, _), .nullish(let a, let b, _):
+         .alternative(let a, let b, _), .nullish(let a, let b, _),
+         .binary(_, let a, let b, _):
         return containsIterate(a) || containsIterate(b)
+    case .neg(let inner, _):
+        return containsIterate(inner)
     case .call(_, let args, _):
         return args.contains(where: containsIterate)
     default:
@@ -158,6 +181,20 @@ private func phrase(_ filter: Filter, mode: JigMode) -> String {
         return args.isEmpty
             ? "call \(name)"
             : "call \(name) with (\(args.map(render).joined(separator: "; ")))"
+    case .binary(let op, let a, let b, _):
+        let lead: String
+        switch op {
+        case .add, .subtract, .multiply, .divide, .modulo:
+            lead = "compute"
+        case .eq, .ne, .lt, .le, .gt, .ge:
+            lead = "test whether"
+        case .and, .or:
+            lead = "logically combine"
+        }
+        let note = op.isLogical ? " — short-circuits, yields a boolean" : ""
+        return "\(lead): (\(render(a))) \(op.symbol) (\(render(b)))\(note)"
+    case .neg(let inner, _):
+        return "negate: -(\(render(inner)))"
     case .pipe:
         // Unreached after flattenPipe; render defensively.
         return render(filter)
@@ -189,5 +226,23 @@ public func render(_ filter: Filter) -> String {
         return "\(render(a)) ?? \(render(b))"
     case .call(let name, let args, _):
         return args.isEmpty ? name : "\(name)(\(args.map(render).joined(separator: "; ")))"
+    case .binary(let op, let a, let b, _):
+        // Parenthesize operands that are themselves infix/compound, so the
+        // rendered text re-parses to the SAME tree (precedence-faithful).
+        return "\(renderAtom(a)) \(op.symbol) \(renderAtom(b))"
+    case .neg(let inner, _):
+        return "-\(renderAtom(inner))"
+    }
+}
+
+/// Render a sub-expression, wrapping it in parentheses when it is a loose
+/// (infix/compound) node — otherwise `render` would drop the grouping and the
+/// text would mis-associate (e.g. `(2 + 3) * 4` flattening to `2 + 3 * 4`).
+private func renderAtom(_ filter: Filter) -> String {
+    switch filter {
+    case .identity, .field, .index, .iterate, .literal, .call:
+        return render(filter)
+    case .pipe, .comma, .alternative, .nullish, .binary, .neg:
+        return "(\(render(filter)))"
     }
 }

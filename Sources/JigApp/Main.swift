@@ -202,6 +202,10 @@ enum JigApp {
           42 "s" true null literals
           a // b           alternative (b unless a is truthy)
           a ?? b           nullish (b only if a is null/empty)   [ECMAScript]
+          a+b a-b a*b      arithmetic + - * / %  (also "s"*n, arr-arr,
+          a/b a%b  -a        obj+obj merge / obj*obj deep-merge, str/str split)
+          a==b a<b …       comparison == != < <= > >=  (jq's cross-type order)
+          a and b  a or b  logical (short-circuit, boolean result)
           # ...            comment to end of line
 
         BUILTINS (v0)

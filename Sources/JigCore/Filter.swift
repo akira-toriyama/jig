@@ -44,4 +44,42 @@ public indirect enum Filter: Sendable, Equatable {
     /// A builtin/function call: `length`, `map(f)`, `has(k)`. Arguments are
     /// `;`-separated filters.
     case call(name: String, args: [Filter], span: SourceSpan)
+    /// An infix operator: arithmetic (`+ - * / %`), comparison
+    /// (`== != < <= > >=`), or logical (`and` / `or`). Both sides are
+    /// filters; arithmetic/comparison form a cartesian product of the two
+    /// output streams, logical ops short-circuit (docs/jq-compat.md step 3).
+    case binary(BinOp, Filter, Filter, span: SourceSpan)
+    /// Unary minus: `-.x`, `-(…)`. (A `-` directly before digits is folded
+    /// into a number literal so its source text is preserved, like jq.)
+    case neg(Filter, span: SourceSpan)
+}
+
+/// The infix operators. `symbol` is the source spelling, used by `render` /
+/// `jig explain` and to keep error messages in jq's vocabulary.
+public enum BinOp: Sendable, Equatable {
+    case add, subtract, multiply, divide, modulo   // + - * / %
+    case eq, ne, lt, le, gt, ge                    // == != < <= > >=
+    case and, or                                   // and / or
+
+    public var symbol: String {
+        switch self {
+        case .add: return "+"
+        case .subtract: return "-"
+        case .multiply: return "*"
+        case .divide: return "/"
+        case .modulo: return "%"
+        case .eq: return "=="
+        case .ne: return "!="
+        case .lt: return "<"
+        case .le: return "<="
+        case .gt: return ">"
+        case .ge: return ">="
+        case .and: return "and"
+        case .or: return "or"
+        }
+    }
+
+    /// Logical ops have a different evaluation shape (short-circuit, always
+    /// boolean) than arithmetic/comparison (cartesian product).
+    public var isLogical: Bool { self == .and || self == .or }
 }
