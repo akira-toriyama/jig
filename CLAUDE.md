@@ -133,8 +133,13 @@ filter (v0 subset — 全 jq 言語へのロードマップは docs/jq-compat.md
 
 flags: -c/--compact-output  -r/--raw-output  -n/--null-input
        --humane  -h/--help  -V/--version  --
+input: stdin / file 引数 / `-`(=stdin)。whitespace 区切り複数 doc 可。
+       入力無し(対話端末)はハングせず案内 (clig.dev)。
 exit:  0 ok / 2 usage・input / 3 compile / 5 runtime
 ```
+
+試用は同梱の [`sample/foo.json`](sample/foo.json) / [`sample/bar.json`](sample/bar.json)。
+I/O 仕様は README の "Input / Output" に集約（clig.dev 準拠）。
 
 flag 名は jq と完全一致させる（筋肉記憶の互換も互換のうち）。短 flag の
 結合（`-rc`）は未対応 — jq 側の挙動が不安定なため保留（jq-compat.md）。

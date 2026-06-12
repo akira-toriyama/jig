@@ -122,14 +122,18 @@ enum JigApp {
         }
         let sources: [(name: String, text: String)]
         if args.files.isEmpty {
-            let data = FileHandle.standardInput.readDataToEndOfFile()
-            guard let text = String(data: data, encoding: .utf8) else {
-                stderrLine("jig: stdin is not valid UTF-8")
+            // clig.dev: don't hang on an interactive terminal — if nothing
+            // is piped in, guide the user instead of blocking on read().
+            if isatty(FileHandle.standardInput.fileDescriptor) != 0 {
+                stderrLine("jig: no input — pipe JSON in, pass a file, or use -n")
+                stderrLine("jig: e.g.  echo '{\"a\":1}' | jig '.a'   •   jig '.a' file.json   •   jig -n '1'")
                 exit(2)
             }
-            sources = [("<stdin>", text)]
+            sources = [("<stdin>", readStdinText())]
         } else {
             sources = args.files.map { file in
+                // clig.dev: `-` means stdin.
+                if file == "-" { return ("<stdin>", readStdinText()) }
                 guard let text = try? String(contentsOfFile: file, encoding: .utf8) else {
                     stderrLine("jig: cannot read \(file)")
                     exit(2)
@@ -154,6 +158,15 @@ enum JigApp {
                 }
             }
         }
+    }
+
+    static func readStdinText() -> String {
+        let data = FileHandle.standardInput.readDataToEndOfFile()
+        guard let text = String(data: data, encoding: .utf8) else {
+            stderrLine("jig: stdin is not valid UTF-8")
+            exit(2)
+        }
+        return text
     }
 
     static func stderrLine(_ s: String) {

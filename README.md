@@ -61,15 +61,66 @@ and available in both modes.
 ## Usage
 
 ```sh
-curl -s https://api.example.com/users | jig '.[] | .name'
-jig -r '.items[0].id' data.json
-echo '{"a":{"b":[1,2,3]}}' | jig -c '.a.b[]'
+curl -s https://api.example.com/users | jig '.[] | .name'   # from a pipe
+jig -r '.maintainers[].name' sample/foo.json                # from a file
+cat sample/foo.json | jig -c '.tags' -                      # `-` = stdin
 ```
 
-Currently supported filter syntax (v0): `.` `.foo` `.foo?` `.[0]` `.[-1]`
-`.[]` `.[]?` `|` `,` `( … )` — plus `-c` / `-r` / `-n`, multi-document input
-streams (NDJSON), and jq-mirroring exit codes (0 / 2 usage / 3 compile /
-5 runtime). Full surface and roadmap: [docs/jq-compat.md](docs/jq-compat.md).
+### Try it
+
+The repo ships two sample documents under [`sample/`](sample/):
+
+```console
+$ jig -r '.maintainers[] | .name' sample/foo.json
+ann
+bob
+cy
+
+$ jig -c '.maintainers | map(select(.active))' sample/foo.json
+[{"name":"ann","active":true,"commits":128},{"name":"cy","active":true,"commits":7}]
+
+$ jig '.maintainers | map(.commits) | add' sample/foo.json
+177
+
+$ jig '.repo.big_id' sample/foo.json          # 64-bit id, preserved exactly
+12345678901234567890
+
+# // drops false+null; ?? (nullish) keeps false — compare on sample/bar.json
+$ jig -c 'map(.shipped // "pending")' sample/bar.json
+["pending",true,"pending"]
+$ jig -c 'map(.shipped ?? "pending")' sample/bar.json
+["pending",true,false]
+
+$ jig explain '.maintainers[] | .name'        # plain-language + JS analogy
+  …
+  ≈ JS: input.maintainers.map(x => x.name)
+```
+
+### Currently supported (v0)
+
+`.` `.foo` `.foo?` `.[0]` `.[-1]` `.[]` `.[]?` `|` `,` `( … )` `# comments`,
+scalar literals (`42` `"s"` `true` `false` `null`), `a // b`, `a ?? b`, and
+builtins `length keys keys_unsorted type not reverse add empty map(f)
+select(f) has(k)` (ECMAScript aliases `typeof`, `filter`). Subcommands
+`jig explain` / `jig check`. Full surface and roadmap:
+[docs/jq-compat.md](docs/jq-compat.md).
+
+## Input / Output
+
+jig is a Unix filter, aligned with [clig.dev](https://clig.dev):
+
+- **Input** — JSON from **stdin**, from **file arguments**, or from `-`
+  (stdin). One source may hold a **stream** of whitespace-separated documents
+  (including NDJSON); each is filtered in turn.
+- **stdout** — the JSON results, one value per line. 2-space pretty by
+  default; `-c` compact; `-r` emits top-level strings raw (no quotes).
+- **stderr** — diagnostics only (errors, hints, `JIG_DEBUG` traces), so they
+  never pollute the data on stdout.
+- **Exit codes** (mirroring jq): `0` ok · `2` usage / unreadable or malformed
+  input · `3` filter compile error · `5` a runtime error occurred while
+  filtering.
+- With **no piped input** on an interactive terminal, jig prints a hint
+  instead of hanging — pipe data, pass a file, or use `-n`.
 
 ## Install
 
