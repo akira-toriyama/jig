@@ -9,7 +9,7 @@ jobs:
   build:
     runs-on: macos-15
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       # macos runners can default to an older Xcode; the package needs the
       # Swift 6 toolchain. Pin the latest stable Xcode.
