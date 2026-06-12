@@ -31,4 +31,17 @@ public indirect enum Filter: Sendable, Equatable {
     case pipe(Filter, Filter)
     /// `lhs , rhs`
     case comma(Filter, Filter)
+    /// A constant scalar: `42`, `"text"`, `true`, `false`, `null`. Ignores
+    /// its input and emits the value.
+    case literal(JigValue)
+    /// `a // b` — jq's alternative: emits a's outputs that are neither false
+    /// nor null; if there are none, emits b's. In humane mode it drops only
+    /// null (H1), matching `??`.
+    case alternative(Filter, Filter, span: SourceSpan)
+    /// `a ?? b` — nullish coalescing: emits a's non-null outputs; if there
+    /// are none, emits b's. Same in both modes (additive; jq rejects `??`).
+    case nullish(Filter, Filter, span: SourceSpan)
+    /// A builtin/function call: `length`, `map(f)`, `has(k)`. Arguments are
+    /// `;`-separated filters.
+    case call(name: String, args: [Filter], span: SourceSpan)
 }

@@ -186,7 +186,15 @@ enum JigApp {
           f | g            pipe: outputs of f feed g
           f , g            both: outputs of f, then outputs of g
           ( ... )          grouping
+          42 "s" true null literals
+          a // b           alternative (b unless a is truthy)
+          a ?? b           nullish (b only if a is null/empty)   [ECMAScript]
           # ...            comment to end of line
+
+        BUILTINS (v0)
+          length keys keys_unsorted type not reverse add empty
+          map(f) select(f) has(k)
+          ECMAScript aliases: typeof (=type), filter (=select)
 
         FLAGS
           -c, --compact-output   one line per output (default: 2-space pretty)

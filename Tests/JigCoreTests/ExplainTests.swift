@@ -61,4 +61,21 @@ final class ExplainTests: XCTestCase {
         XCTAssertEqual(render(try! parseFilter(".[]?")), ".[]?")
         XCTAssertEqual(render(try! parseFilter(".x[0]")), ".x | .[0]")
     }
+
+    // MARK: increment-2 nodes
+
+    func testRenderLiteralsOpsCalls() {
+        XCTAssertEqual(render(try! parseFilter(#".a // "d""#)), #".a // "d""#)
+        XCTAssertEqual(render(try! parseFilter(".a ?? 0")), ".a ?? 0")
+        XCTAssertEqual(render(try! parseFilter("map(.x)")), "map(.x)")
+        XCTAssertEqual(render(try! parseFilter("length")), "length")
+    }
+
+    func testJsForOpsAndCalls() {
+        XCTAssertEqual(jsEquivalent(try! parseFilter(".a ?? 0")), "(input.a ?? 0)")
+        XCTAssertEqual(jsEquivalent(try! parseFilter(#".a // "d""#)), #"(input.a || "d")"#)
+        XCTAssertEqual(jsEquivalent(try! parseFilter("map(.name)")), "input.map(x => x.name)")
+        XCTAssertEqual(jsEquivalent(try! parseFilter("length")), "input.length")
+        XCTAssertEqual(jsEquivalent(try! parseFilter("keys")), "Object.keys(input)")
+    }
 }

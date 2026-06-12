@@ -77,17 +77,45 @@ private struct FilterParser {
     }
 
     private mutating func parseComma() throws -> Filter {
-        var lhs = try parsePostfix()
+        var lhs = try parseAlt()
         while true {
             skipWhitespace()
             if peek() == UInt8(ascii: ",") {
                 pos += 1
-                let rhs = try parsePostfix()
+                let rhs = try parseAlt()
                 lhs = .comma(lhs, rhs)
             } else {
                 return lhs
             }
         }
+    }
+
+    // `//` (alternative) and `??` (nullish) bind tighter than `,` and `|`,
+    // looser than field/index suffixes — jq precedence for `//`.
+    private mutating func parseAlt() throws -> Filter {
+        var lhs = try parsePostfix()
+        while true {
+            skipWhitespace()
+            let opStart = pos
+            if matchOperator("//") {
+                let rhs = try parsePostfix()
+                lhs = .alternative(lhs, rhs, span: SourceSpan(opStart, opStart + 2))
+            } else if matchOperator("??") {
+                let rhs = try parsePostfix()
+                lhs = .nullish(lhs, rhs, span: SourceSpan(opStart, opStart + 2))
+            } else {
+                return lhs
+            }
+        }
+    }
+
+    /// Consume `op` if it's exactly next. Used for `//` / `??`.
+    private mutating func matchOperator(_ op: String) -> Bool {
+        let want = Array(op.utf8)
+        guard pos + want.count <= bytes.count else { return false }
+        for (i, b) in want.enumerated() where bytes[pos + i] != b { return false }
+        pos += want.count
+        return true
     }
 
     private mutating func parsePostfix() throws -> Filter {
@@ -128,9 +156,127 @@ private struct FilterParser {
             }
             pos += 1
             return inner
+        case UInt8(ascii: "\""):
+            return .literal(.string(try parseStringLiteral()))
+        case UInt8(ascii: "-"), UInt8(ascii: "0")...UInt8(ascii: "9"):
+            return .literal(.number(try parseNumberLiteral()))
+        case UInt8(ascii: "a")...UInt8(ascii: "z"),
+             UInt8(ascii: "A")...UInt8(ascii: "Z"),
+             UInt8(ascii: "_"):
+            return try parseIdentifierPrimary()
         default:
             throw unexpected("at the start of a filter")
         }
+    }
+
+    /// A bare identifier: the keywords `true`/`false`/`null`, otherwise a
+    /// function call (`length`, or `map(f)` / `has(k)` with `;`-separated
+    /// args).
+    private mutating func parseIdentifierPrimary() throws -> Filter {
+        let start = pos
+        guard let name = scanIdent() else { throw unexpected("at the start of a filter") }
+        switch name {
+        case "true": return .literal(.bool(true))
+        case "false": return .literal(.bool(false))
+        case "null": return .literal(.null)
+        default: break
+        }
+        var args: [Filter] = []
+        if peek() == UInt8(ascii: "(") {
+            pos += 1
+            while true {
+                args.append(try parsePipe())
+                skipWhitespace()
+                if peek() == UInt8(ascii: ";") { pos += 1; continue }
+                break
+            }
+            skipWhitespace()
+            guard peek() == UInt8(ascii: ")") else {
+                throw unexpected("in \(name)(...) arguments — expected \";\" or \")\"")
+            }
+            pos += 1
+        }
+        return .call(name: name, args: args, span: SourceSpan(start, pos))
+    }
+
+    private mutating func parseStringLiteral() throws -> String {
+        let openQuote = pos
+        pos += 1 // opening "
+        var scalars = String.UnicodeScalarView()
+        while true {
+            guard let b = peek() else {
+                throw FilterParseError(message: "unterminated string literal",
+                                       span: SourceSpan(openQuote, pos))
+            }
+            pos += 1
+            switch b {
+            case UInt8(ascii: "\""):
+                return String(scalars)
+            case UInt8(ascii: "\\"):
+                guard let e = peek() else {
+                    throw FilterParseError(message: "unterminated escape in string",
+                                           span: SourceSpan(pos - 1, pos))
+                }
+                if e == UInt8(ascii: "(") {
+                    throw FilterParseError(
+                        message: "string interpolation \\(…) is not implemented yet",
+                        span: SourceSpan(pos - 1, pos + 1),
+                        hint: "roadmap (docs/jq-compat.md step 2); for now build strings without \\(…)")
+                }
+                pos += 1
+                switch e {
+                case UInt8(ascii: "\""): scalars.append("\"")
+                case UInt8(ascii: "\\"): scalars.append("\\")
+                case UInt8(ascii: "/"): scalars.append("/")
+                case UInt8(ascii: "n"): scalars.append("\n")
+                case UInt8(ascii: "t"): scalars.append("\t")
+                case UInt8(ascii: "r"): scalars.append("\r")
+                case UInt8(ascii: "b"): scalars.append("\u{08}")
+                case UInt8(ascii: "f"): scalars.append("\u{0C}")
+                default:
+                    throw FilterParseError(
+                        message: "invalid escape \"\\\(Character(UnicodeScalar(e)))\" in string",
+                        span: SourceSpan(pos - 2, pos))
+                }
+            default:
+                if b < 0x80 {
+                    scalars.append(UnicodeScalar(b))
+                } else {
+                    // Re-assemble a UTF-8 multibyte sequence.
+                    var buf: [UInt8] = [b]
+                    let extra = b >= 0xF0 ? 3 : b >= 0xE0 ? 2 : 1
+                    for _ in 0..<extra {
+                        guard let c = peek(), c & 0xC0 == 0x80 else { break }
+                        buf.append(c); pos += 1
+                    }
+                    if let s = String(bytes: buf, encoding: .utf8) {
+                        scalars.append(contentsOf: s.unicodeScalars)
+                    }
+                }
+            }
+        }
+    }
+
+    private mutating func parseNumberLiteral() throws -> JigNumber {
+        let start = pos
+        if peek() == UInt8(ascii: "-") { pos += 1 }
+        func digits() { while let d = peek(), (UInt8(ascii: "0")...UInt8(ascii: "9")).contains(d) { pos += 1 } }
+        guard let d = peek(), (UInt8(ascii: "0")...UInt8(ascii: "9")).contains(d) else {
+            throw unexpected("in a number — expected a digit")
+        }
+        digits()
+        if peek() == UInt8(ascii: ".") { pos += 1; digits() }
+        if let e = peek(), e == UInt8(ascii: "e") || e == UInt8(ascii: "E") {
+            pos += 1
+            if let s = peek(), s == UInt8(ascii: "+") || s == UInt8(ascii: "-") { pos += 1 }
+            digits()
+        }
+        let text = String(decoding: bytes[start..<pos], as: UTF8.self)
+        guard let value = Double(text) else {
+            throw FilterParseError(message: "invalid number \"\(text)\"",
+                                   span: SourceSpan(start, pos))
+        }
+        return JigNumber(literal: text, double: value)
     }
 
     /// nil = no suffix here (caller stops chaining).

@@ -95,6 +95,57 @@ final class FilterParserTests: XCTestCase {
         }
     }
 
+    // MARK: literals, calls, and the // / ?? precedence level
+
+    func testLiteralsParse() throws {
+        XCTAssertEqual(try parseFilter("true"), .literal(.bool(true)))
+        XCTAssertEqual(try parseFilter("null"), .literal(.null))
+        guard case .literal(.string("hi")) = try parseFilter(#""hi""#) else { return XCTFail() }
+        guard case .literal(.number) = try parseFilter("42") else { return XCTFail() }
+        guard case .literal(.number) = try parseFilter("-3.5e2") else { return XCTFail() }
+    }
+
+    func testCallWithAndWithoutArgs() throws {
+        guard case .call(name: "length", args: let none, _) = try parseFilter("length"),
+              none.isEmpty else { return XCTFail() }
+        guard case .call(name: "map", args: let a, _) = try parseFilter("map(.x)"),
+              a.count == 1 else { return XCTFail() }
+        guard case .call(name: "has", args: let h, _) = try parseFilter(#"has("k")"#),
+              h.count == 1 else { return XCTFail() }
+    }
+
+    func testCallSuffixChains() throws {
+        // keys[0] ≡ keys | .[0]
+        guard case .pipe(.call(name: "keys", _, _), .index(0, _, _)) = try parseFilter("keys[0]")
+        else { return XCTFail() }
+    }
+
+    func testAlternativeAndNullishNodes() throws {
+        guard case .alternative(_, _, _) = try parseFilter(#".a // "d""#) else { return XCTFail() }
+        guard case .nullish(_, _, _) = try parseFilter(#".a ?? "d""#) else { return XCTFail() }
+    }
+
+    func testAltBindsTighterThanCommaAndPipe() throws {
+        // .a // .b | .c  ≡  (.a // .b) | .c
+        guard case .pipe(.alternative(_, _, _), .field(name: "c", _, _)) =
+            try parseFilter(".a // .b | .c") else { return XCTFail() }
+        // .a, .b // .c  ≡  .a, (.b // .c)
+        guard case .comma(.field(name: "a", _, _), .alternative(_, _, _)) =
+            try parseFilter(".a, .b // .c") else { return XCTFail() }
+    }
+
+    func testStringInterpolationIsAFriendlyError() {
+        XCTAssertThrowsError(try parseFilter(#""hi \(.x)""#)) { error in
+            guard let e = error as? FilterParseError else { return XCTFail() }
+            XCTAssertTrue(e.message.contains("interpolation"), e.message)
+        }
+    }
+
+    func testUnterminatedStringAndBadCallError() {
+        XCTAssertThrowsError(try parseFilter("\"oops"))
+        XCTAssertThrowsError(try parseFilter("map(.a"))  // missing )
+    }
+
     func testNoInputCrashesTheParser() {
         // Mini-fuzz: every prefix of a gnarly program must error or parse,
         // never trap. (Real fuzzing is roadmap — docs/jq-compat.md.)
