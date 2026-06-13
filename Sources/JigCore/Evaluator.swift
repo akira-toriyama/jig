@@ -129,6 +129,61 @@ public func evaluate(_ filter: Filter, on input: JigValue, mode: JigMode = .jq) 
 
     case .neg(let inner, let span):
         return try negate(try evaluate(inner, on: input, mode: mode), span)
+
+    case .arrayConstruct(let inner):
+        // Collect the inner filter's entire stream into ONE array ([] when
+        // absent). The sole point where a stream becomes an array value.
+        guard let inner else { return [.array([])] }
+        return [.array(try evaluate(inner, on: input, mode: mode))]
+
+    case .objectConstruct(let entries):
+        return try buildObjects(entries, on: input, mode: mode)
+    }
+}
+
+/// Object construction `{…}`: each entry's key and value run on the same
+/// input, and the result is the cartesian product of every entry's outputs
+/// expanded into objects. Order matches jq's `k1 as $k1 | v1 as $v1 | k2 as
+/// $k2 | …` desugaring — earlier entries vary slowest, and within a pair the
+/// key varies slower than the value. An empty key/value stream makes the whole
+/// product empty (jq), and later entries are then not evaluated. Keys must be
+/// strings; on a duplicate key the last value wins while the first position is
+/// kept (`{a:1,b:2,a:3}` → `{"a":3,"b":2}`).
+private func buildObjects(_ entries: [ObjectEntry], on input: JigValue,
+                          mode: JigMode) throws -> [JigValue] {
+    var combos: [[(key: String, value: JigValue)]] = [[]]
+    for entry in entries {
+        if combos.isEmpty { break }  // an earlier entry yielded nothing
+        let keys = try evaluate(entry.key, on: input, mode: mode)
+        // Don't evaluate the value when there are no keys — jq's `k as $k | v
+        // as $v` pipe short-circuits before binding (and thus evaluating) v.
+        let values = keys.isEmpty ? [] : try evaluate(entry.value, on: input, mode: mode)
+        var next: [[(key: String, value: JigValue)]] = []
+        for combo in combos {            // earlier entries — outermost loop
+            for k in keys {              // this key — middle (slower than value)
+                guard case .string(let ks) = k else {
+                    throw EvalError(
+                        message: "cannot use \(k.typeName) (\(briefValue(k))) as object key",
+                        span: entry.keySpan,
+                        hint: "object keys must be strings — a computed (…) key has to evaluate to a string")
+                }
+                for v in values {        // this value — innermost (fastest)
+                    next.append(combo + [(key: ks, value: v)])
+                }
+            }
+        }
+        combos = next
+    }
+    return combos.map { pairs in
+        var obj: [(key: String, value: JigValue)] = []
+        for (k, v) in pairs {
+            if let i = obj.firstIndex(where: { $0.key == k }) {
+                obj[i].value = v       // last value wins; first position kept
+            } else {
+                obj.append((key: k, value: v))
+            }
+        }
+        return .object(obj)
     }
 }
 

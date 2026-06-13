@@ -23,7 +23,14 @@
 //   unary    := "-" unary | postfix           # unary minus (NEG)
 //   postfix  := primary suffix*
 //   primary  := "." ( IDENT "?"? )?           # . | .foo
-//            |  "(" pipe ")"
+//            |  "(" pipe ")"                   # grouping
+//            |  literal | call                 # 42 "s" true null / length, map(f)
+//            |  "[" pipe? "]"                  # array construction: [.a,.b] / []
+//            |  "{" entries? "}"               # object construction
+//   entries  := entry ( "," entry )* ","?      # one trailing comma is allowed
+//   entry    := key ( ":" objval )?            # value omitted = shorthand {k}≡{k:.k}
+//   key      := IDENT | KEYWORD | STRING | "(" pipe ")"   # bareword/keyword/string/computed
+//   objval   := alt ( "|" alt )*               # comma-free: "," separates pairs (jq)
 //   suffix   := "." IDENT "?"?                # .foo.bar chains
 //            |  "[" INT? "]" "?"?             # .[0] index / .[] iterate
 
@@ -294,6 +301,10 @@ private struct FilterParser {
             return inner
         case UInt8(ascii: "\""):
             return .literal(.string(try parseStringLiteral()))
+        case UInt8(ascii: "["):
+            return try parseArrayConstruct()
+        case UInt8(ascii: "{"):
+            return try parseObjectConstruct()
         case UInt8(ascii: "-"), UInt8(ascii: "0")...UInt8(ascii: "9"):
             return .literal(.number(try parseNumberLiteral()))
         case UInt8(ascii: "a")...UInt8(ascii: "z"),
@@ -333,6 +344,140 @@ private struct FilterParser {
             pos += 1
         }
         return .call(name: name, args: args, span: SourceSpan(start, pos))
+    }
+
+    // MARK: construction
+
+    /// `[ Exp ]` / `[]` — array construction: collect the inner pipe
+    /// expression's whole stream into one array. This is the PREFIX `[`
+    /// (a primary); the SUFFIX `[…]` (index/iterate) is parseSuffix and only
+    /// attaches to a preceding term — so `[1,2][0]` is index-0 of a built
+    /// array, exactly like jq.
+    private mutating func parseArrayConstruct() throws -> Filter {
+        pos += 1 // consume "["
+        skipWhitespace()
+        if peek() == UInt8(ascii: "]") {
+            pos += 1
+            return .arrayConstruct(nil)
+        }
+        let inner = try parsePipe()
+        skipWhitespace()
+        guard peek() == UInt8(ascii: "]") else {
+            throw unexpected("inside [ … ] array construction — expected \"]\"")
+        }
+        pos += 1
+        return .arrayConstruct(inner)
+    }
+
+    /// `{ … }` — object construction. Pairs are `,`-separated with one
+    /// optional trailing comma (jq allows `{a:1,}`; `[1,2,]` is still an error,
+    /// because array elements ride the comma OPERATOR which needs an operand).
+    private mutating func parseObjectConstruct() throws -> Filter {
+        pos += 1 // consume "{"
+        skipWhitespace()
+        if peek() == UInt8(ascii: "}") {
+            pos += 1
+            return .objectConstruct([])
+        }
+        var entries: [ObjectEntry] = []
+        while true {
+            entries.append(try parseObjectEntry())
+            skipWhitespace()
+            if peek() == UInt8(ascii: ",") {
+                pos += 1
+                skipWhitespace()
+                if peek() == UInt8(ascii: "}") { pos += 1; return .objectConstruct(entries) }
+                continue
+            }
+            if peek() == UInt8(ascii: "}") {
+                pos += 1
+                return .objectConstruct(entries)
+            }
+            throw unexpected("in object construction — expected \",\" between pairs or \"}\" to close")
+        }
+    }
+
+    /// One object pair: a computed `(expr)` key (value required), or a
+    /// bareword/keyword/string key (value optional — bare `{k}` is shorthand
+    /// for `{k: .k}`). `$var` keys need variables (roadmap step 5).
+    private mutating func parseObjectEntry() throws -> ObjectEntry {
+        skipWhitespace()
+        let keyStart = pos
+        // Computed key: ( Exp ) — never a shorthand, a value must follow.
+        if peek() == UInt8(ascii: "(") {
+            pos += 1
+            let keyExpr = try parsePipe()
+            skipWhitespace()
+            guard peek() == UInt8(ascii: ")") else {
+                throw unexpected("inside a computed ( … ) object key — expected \")\"")
+            }
+            pos += 1
+            let keySpan = SourceSpan(keyStart, pos)
+            try expectColon(after: "a computed (…) key")
+            return ObjectEntry(key: keyExpr, value: try parseObjectValue(), keySpan: keySpan)
+        }
+        // String-literal key (may be shorthand): {"a b"} ≡ {"a b": .["a b"]}.
+        if peek() == UInt8(ascii: "\"") {
+            let s = try parseStringLiteral()
+            return try objectEntryTail(key: s, keySpan: SourceSpan(keyStart, pos))
+        }
+        // Bareword / keyword key (may be shorthand). Reserved words
+        // (true/false/null/and/if/…) are plain string keys here, matching jq.
+        if let name = scanIdent() {
+            return try objectEntryTail(key: name, keySpan: SourceSpan(keyStart, pos))
+        }
+        throw objectKeyExpected()
+    }
+
+    /// After a string/bareword key: a `:` introduces an explicit value;
+    /// otherwise it's the shorthand `{k}` whose value is `.k` (field access by
+    /// that exact string, so `{"a b"}` reads `.["a b"]`).
+    private mutating func objectEntryTail(key: String, keySpan: SourceSpan) throws -> ObjectEntry {
+        skipWhitespace()
+        let keyFilter = Filter.literal(.string(key))
+        if peek() == UInt8(ascii: ":") {
+            pos += 1
+            return ObjectEntry(key: keyFilter, value: try parseObjectValue(), keySpan: keySpan)
+        }
+        return ObjectEntry(key: keyFilter,
+                           value: .field(name: key, optional: false, span: keySpan),
+                           keySpan: keySpan)
+    }
+
+    private mutating func expectColon(after what: String) throws {
+        skipWhitespace()
+        guard peek() == UInt8(ascii: ":") else {
+            throw unexpected("after \(what) — expected \":\"")
+        }
+        pos += 1
+    }
+
+    /// The VALUE side of an object pair: a pipe-chain of comma-free
+    /// expressions. `,` is the pair separator (so `{a:1,2}` is two pairs — a
+    /// jq syntax error at `2`), but everything tighter than comma — `|`, `//`,
+    /// `??`, `or`/`and`, comparison, arithmetic, unary minus — is allowed
+    /// unparenthesized (verified against jq 1.8: `{a: 1+2, b: .x // 0}` works).
+    private mutating func parseObjectValue() throws -> Filter {
+        var lhs = try parseAlt()
+        while true {
+            skipWhitespace()
+            if peek() == UInt8(ascii: "|") {
+                pos += 1
+                lhs = .pipe(lhs, try parseAlt())
+            } else {
+                return lhs
+            }
+        }
+    }
+
+    private func objectKeyExpected() -> FilterParseError {
+        if peek() == UInt8(ascii: "$") {
+            return FilterParseError(
+                message: "unexpected \"$\" in object construction",
+                span: SourceSpan(pos, pos + 1),
+                hint: "$variable keys need variables (docs/jq-compat.md roadmap step 5); for now use {name: …}, {\"name\": …}, or {(expr): …}")
+        }
+        return unexpected("in object construction — expected a key: a name, \"string\", or (expression)")
     }
 
     private mutating func parseStringLiteral() throws -> String {
@@ -565,7 +710,9 @@ private struct FilterParser {
             return FilterParseError(
                 message: "unexpected \(b == UInt8(ascii: "'") ? "\"'\"" : "'\"'") \(context)",
                 span: span,
-                hint: "string literals are not implemented yet (docs/jq-compat.md roadmap) — if this quote was meant to wrap the whole filter, your shell may have swallowed the outer quotes: jig '.foo'")
+                hint: b == UInt8(ascii: "'")
+                    ? "jq strings use double quotes (\"…\"), not '…' — and a lone quote here often means your shell swallowed the filter's outer quotes: jig '.foo'"
+                    : "a string can't start here; if your shell swallowed the filter's outer quotes, wrap it in single quotes: jig '.foo'")
         case UInt8(ascii: "$"):
             return FilterParseError(
                 message: "unexpected \"$\" \(context)",

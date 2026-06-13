@@ -99,7 +99,9 @@ $ jig explain '.maintainers[] | .name'        # plain-language + JS analogy
 ### Currently supported (v0)
 
 `.` `.foo` `.foo?` `.[0]` `.[-1]` `.[]` `.[]?` `|` `,` `( … )` `# comments`,
-scalar literals (`42` `"s"` `true` `false` `null`), `a // b`, `a ?? b`,
+scalar literals (`42` `"s"` `true` `false` `null`), object / array construction
+(`{a: .b}`, `{user}` shorthand, `{(.k): .v}` computed keys, `[.x, .y]`),
+`a // b`, `a ?? b`,
 arithmetic `+ - * / %` (incl. `"s"*n`, `arr-arr`, `obj+obj` merge / `obj*obj`
 deep-merge, `str/str` split), comparison `== != < <= > >=` (jq's cross-type
 total order), logical `and` / `or`, unary minus `-x`, and builtins

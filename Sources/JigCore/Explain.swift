@@ -47,7 +47,9 @@ private func jsChain(_ stages: [Filter], subject: String) -> String {
         case .identity:
             break
         case .field(let name, _, _):
-            expr += ".\(name)"
+            // A non-identifier key (from {"a b"} shorthand) needs JS bracket
+            // access — `.foo` only works for barewords; `input.` would be junk.
+            expr += isBarewordKey(name) ? ".\(name)" : "[\(writeJSON(.string(name), style: .compact))]"
         case .index(let n, _, _):
             // JS Array.prototype.at handles negative indices like jq.
             expr += ".at(\(n))"
@@ -78,12 +80,66 @@ private func jsChain(_ stages: [Filter], subject: String) -> String {
             expr = "(\(ja) \(jsOp(op)) \(jb))"
         case .neg(let inner, _):
             expr = "-\(jsChain(flattenPipe(inner), subject: expr))"
+        case .arrayConstruct(let inner):
+            guard let inner else { expr = "[]"; break }
+            let parts = flattenComma(inner)
+            if parts.count == 1, containsIterate(parts[0]) {
+                // [ .[] | f ] ≈ subject.map(...) — jsChain already yields an
+                // array, so don't wrap it in another pair of brackets.
+                expr = jsChain(flattenPipe(parts[0]), subject: expr)
+            } else {
+                expr = "[" + parts.map { jsChain(flattenPipe($0), subject: expr) }.joined(separator: ", ") + "]"
+            }
+        case .objectConstruct(let entries):
+            let body = entries.map { e -> String in
+                let key: String
+                if case .literal(.string(let s)) = e.key {
+                    key = jsKey(s)
+                } else {
+                    key = "[\(jsChain(flattenPipe(e.key), subject: expr))]"  // computed property
+                }
+                return "\(key): \(jsChain(flattenPipe(e.value), subject: expr))"
+            }.joined(separator: ", ")
+            // Parenthesize the object literal: as an arrow-function body
+            // (`x => ({…})`, the common `map({…})` shape) a bare `{…}` would be
+            // parsed as a block, not an object — `(…)` makes it valid JS anywhere.
+            expr = body.isEmpty ? "({})" : "({ \(body) })"
         case .pipe:
             break  // already flattened
         }
         i += 1
     }
     return expr
+}
+
+/// Split a top-level comma chain into its operands — the comma analogue of
+/// `flattenPipe`, used to turn `[a, b, c]` into a JS array literal.
+private func flattenComma(_ filter: Filter) -> [Filter] {
+    if case .comma(let a, let b) = filter {
+        return flattenComma(a) + flattenComma(b)
+    }
+    return [filter]
+}
+
+/// A JS object key: bareword when it's a valid identifier, else a quoted
+/// string (`{ a: … }` vs `{ "a b": … }`).
+private func jsKey(_ s: String) -> String {
+    isBarewordKey(s) ? s : writeJSON(.string(s), style: .compact)
+}
+
+/// True when `s` is a `[A-Za-z_][A-Za-z0-9_]*` identifier — safe to print as a
+/// bareword object key in both jq render and the JS analogy.
+func isBarewordKey(_ s: String) -> Bool {
+    let bytes = Array(s.utf8)
+    guard let first = bytes.first else { return false }
+    func isLetterOrUnderscore(_ b: UInt8) -> Bool {
+        (b >= UInt8(ascii: "a") && b <= UInt8(ascii: "z"))
+            || (b >= UInt8(ascii: "A") && b <= UInt8(ascii: "Z"))
+            || b == UInt8(ascii: "_")
+    }
+    func isDigit(_ b: UInt8) -> Bool { b >= UInt8(ascii: "0") && b <= UInt8(ascii: "9") }
+    guard isLetterOrUnderscore(first) else { return false }
+    return bytes.dropFirst().allSatisfy { isLetterOrUnderscore($0) || isDigit($0) }
 }
 
 /// JS analogy for a builtin call (best-effort; used only by `jig explain`).
@@ -138,6 +194,10 @@ private func containsIterate(_ filter: Filter) -> Bool {
         return containsIterate(inner)
     case .call(_, let args, _):
         return args.contains(where: containsIterate)
+    case .arrayConstruct(let inner):
+        return inner.map(containsIterate) ?? false
+    case .objectConstruct(let entries):
+        return entries.contains { containsIterate($0.key) || containsIterate($0.value) }
     default:
         return false
     }
@@ -195,6 +255,13 @@ private func phrase(_ filter: Filter, mode: JigMode) -> String {
         return "\(lead): (\(render(a))) \(op.symbol) (\(render(b)))\(note)"
     case .neg(let inner, _):
         return "negate: -(\(render(inner)))"
+    case .arrayConstruct(let inner):
+        return inner == nil
+            ? "build an empty array []"
+            : "build an array by collecting a stream into it: \(render(filter))"
+    case .objectConstruct(let entries):
+        let n = entries.count
+        return "build an object (\(n) \(n == 1 ? "entry" : "entries")): \(render(filter))"
     case .pipe:
         // Unreached after flattenPipe; render defensively.
         return render(filter)
@@ -232,7 +299,34 @@ public func render(_ filter: Filter) -> String {
         return "\(renderAtom(a)) \(op.symbol) \(renderAtom(b))"
     case .neg(let inner, _):
         return "-\(renderAtom(inner))"
+    case .arrayConstruct(let inner):
+        return inner.map { "[\(render($0))]" } ?? "[]"
+    case .objectConstruct(let entries):
+        return "{" + entries.map(renderObjectEntry).joined(separator: ", ") + "}"
     }
+}
+
+/// Render one object pair so it re-parses to the same entry. The key is always
+/// a quoted string (`"a": …`) for literal-string keys — safe for any key text
+/// — or a parenthesized expression for computed keys. The value is rendered as
+/// an atom so a `|`/operator value re-parses inside the pair without colliding
+/// with the `,` separator.
+private func renderObjectEntry(_ e: ObjectEntry) -> String {
+    // A shorthand-shaped entry ({k} or the equivalent {k: .k}) renders back as
+    // shorthand — bareword `k`, or quoted `"k"` for a non-identifier key. This
+    // re-parses to the same tree AND avoids rendering an empty/space key as an
+    // unparseable `.field` (e.g. {""} must not collapse to `"": .`).
+    if case .literal(.string(let k)) = e.key,
+       case .field(name: let vname, optional: false, _) = e.value, vname == k {
+        return isBarewordKey(k) ? k : writeJSON(.string(k), style: .compact)
+    }
+    let key: String
+    if case .literal(.string(let s)) = e.key {
+        key = writeJSON(.string(s), style: .compact)
+    } else {
+        key = "(\(render(e.key)))"
+    }
+    return "\(key): \(renderAtom(e.value))"
 }
 
 /// Render a sub-expression, wrapping it in parentheses when it is a loose
@@ -240,7 +334,8 @@ public func render(_ filter: Filter) -> String {
 /// text would mis-associate (e.g. `(2 + 3) * 4` flattening to `2 + 3 * 4`).
 private func renderAtom(_ filter: Filter) -> String {
     switch filter {
-    case .identity, .field, .index, .iterate, .literal, .call:
+    case .identity, .field, .index, .iterate, .literal, .call,
+         .arrayConstruct, .objectConstruct:
         return render(filter)
     case .pipe, .comma, .alternative, .nullish, .binary, .neg:
         return "(\(render(filter)))"

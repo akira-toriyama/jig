@@ -78,4 +78,35 @@ final class ExplainTests: XCTestCase {
         XCTAssertEqual(jsEquivalent(try! parseFilter("length")), "input.length")
         XCTAssertEqual(jsEquivalent(try! parseFilter("keys")), "Object.keys(input)")
     }
+
+    // MARK: construction (step 2)
+
+    func testRenderConstruction() {
+        XCTAssertEqual(render(try! parseFilter("[]")), "[]")
+        XCTAssertEqual(render(try! parseFilter("{}")), "{}")
+        XCTAssertEqual(render(try! parseFilter("[.a, .b]")), "[.a, .b]")
+        XCTAssertEqual(render(try! parseFilter("{a: .b}")), #"{"a": .b}"#)
+        XCTAssertEqual(render(try! parseFilter("{(.k): .v}")), "{(.k): .v}")
+        // Shorthand-shaped entries render back as shorthand (faithful).
+        XCTAssertEqual(render(try! parseFilter("{a, b}")), "{a, b}")
+        XCTAssertEqual(render(try! parseFilter("{a: .a}")), "{a}")
+    }
+
+    func testRenderEmptyKeyShorthandRoundTrips() {
+        // Regression: {""} must not render to `{"": .}` (a different program).
+        // The empty-name field would collapse to identity `.` in render.
+        XCTAssertEqual(render(try! parseFilter(#"{""}"#)), #"{""}"#)
+    }
+
+    func testJsConstructionIsValidExpression() {
+        // Object literals are parenthesized so they're valid as an arrow body.
+        XCTAssertEqual(jsEquivalent(try! parseFilter("{a: .b}")), "({ a: input.b })")
+        XCTAssertEqual(jsEquivalent(try! parseFilter("{(.k): .v}")), "({ [input.k]: input.v })")
+        XCTAssertEqual(jsEquivalent(try! parseFilter("[.a, .b]")), "[input.a, input.b]")
+        // The canonical map-to-object shape: `x => ({…})`, not `x => {…}`.
+        XCTAssertEqual(jsEquivalent(try! parseFilter("[.[] | {id}]")),
+                       "input.map(x => ({ id: x.id }))")
+        // Non-identifier key → JS bracket access, never `input.`.
+        XCTAssertEqual(jsEquivalent(try! parseFilter(#"{"a b"}"#)), #"({ "a b": input["a b"] })"#)
+    }
 }

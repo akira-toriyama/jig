@@ -200,6 +200,8 @@ enum JigApp {
           f , g            both: outputs of f, then outputs of g
           ( ... )          grouping
           42 "s" true null literals
+          {a: .b}  [.x]    construct objects / arrays ({user} shorthand,
+                             {(.k): .v} computed key, [.[]|f] collect)
           a // b           alternative (b unless a is truthy)
           a ?? b           nullish (b only if a is null/empty)   [ECMAScript]
           a+b a-b a*b      arithmetic + - * / %  (also "s"*n, arr-arr,
