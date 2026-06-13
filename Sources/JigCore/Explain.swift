@@ -1,28 +1,26 @@
-// `jig explain` — describe in plain language what a filter does, using the
-// same AST + mode the evaluator runs on. This is jig's flagship "humane"
-// surface: a direct answer to jq's famously terse mental model
-// (docs/jq-compat.md pain points #15 / #20). Pure (returns a String);
-// JigApp prints it.
+// `jig explain` — describe in plain language what a filter does, walking the
+// same AST the evaluator runs on. This is jig's flagship "humane" surface: a
+// direct answer to the famously terse mental model of stream filters. Pure
+// (returns a String); JigApp prints it.
 
 /// Render a one-line explanation block for `filter`. `source` is the program
-/// as the user typed it (echoed in the header); `mode` tailors the wording
-/// of behaviors that differ between jq and humane mode.
-public func explain(_ filter: Filter, source: String, mode: JigMode) -> String {
+/// as the user typed it (echoed in the header).
+public func explain(_ filter: Filter, source: String) -> String {
     var lines: [String] = []
-    lines.append("jig explain (\(mode.label))")
+    lines.append("jig explain")
     lines.append("")
     lines.append("  filter: \(source)")
     lines.append("")
     let steps = flattenPipe(filter)
     for (i, step) in steps.enumerated() {
-        lines.append("  \(i + 1). \(phrase(step, mode: mode))")
+        lines.append("  \(i + 1). \(phrase(step))")
     }
     lines.append("")
     lines.append("  ≈ JS: \(jsEquivalent(filter))")
     lines.append("")
     lines.append("Model: one input value → a stream of output values (generator semantics).")
-    if mode == .humane && containsIterate(filter) {
-        lines.append("Humane: iterating a null value emits nothing instead of erroring (H2).")
+    if containsIterate(filter) {
+        lines.append("Note: iterating a null value emits nothing (a non-null scalar errors).")
     }
     return lines.joined(separator: "\n")
 }
@@ -54,11 +52,11 @@ private func jsChain(_ stages: [Filter], subject: String) -> String {
             // JS Array.prototype.at handles negative indices like jq.
             expr += ".at(\(n))"
         case .iterate:
-            let rest = Array(stages[(i + 1)...])
-            if rest.isEmpty { return expr }  // the array stands in for its elements
-            // map projects 1:1; flatMap when a further iterate flattens.
-            let op = rest.contains(where: isIterate) ? "flatMap" : "map"
-            return "\(expr).\(op)(x => \(jsChain(rest, subject: "x")))"
+            // Everything after `.[]` runs element-wise over the array. Hand the
+            // remaining stages to jsStream so a following select/filter hoists
+            // OUT as a sibling `.filter(…)` rather than nesting wrongly inside
+            // the `.map(…)` callback.
+            return jsStream(expr, Array(stages[(i + 1)...]))
         case .comma(let a, let b):
             let ja = jsChain(flattenPipe(a), subject: expr)
             let jb = jsChain(flattenPipe(b), subject: expr)
@@ -67,7 +65,7 @@ private func jsChain(_ stages: [Filter], subject: String) -> String {
             // A literal ignores its input — it replaces the running subject.
             expr = writeJSON(v, style: .compact)
         case .alternative(let a, let b, _):
-            // jq `//` ≈ JS falsy-`||`; humane `//` and `??` ≈ JS nullish-`??`.
+            // `//` ≈ JS falsy-`||` (drops false+null); `??` ≈ JS nullish-`??`.
             return "(\(jsChain(flattenPipe(a), subject: expr)) || \(jsChain(flattenPipe(b), subject: expr)))"
         case .nullish(let a, let b, _):
             return "(\(jsChain(flattenPipe(a), subject: expr)) ?? \(jsChain(flattenPipe(b), subject: expr)))"
@@ -124,6 +122,41 @@ private func jsChain(_ stages: [Filter], subject: String) -> String {
     return expr
 }
 
+/// Lower the stages that run AFTER a `.[]` — the element-wise tail of a
+/// pipeline — over the array expression `arrayExpr`. A `select`/`filter`
+/// predicate hoists OUT of the projection as a sibling `.filter(x => …)`; a
+/// maximal run of projection stages collapses into a single `.map(x => …)`
+/// (`.flatMap` when that run iterates again). Empty tail → the array itself
+/// stands in for its elements. This is the fix for the old bug where
+/// `.users[] | select(.active)` lowered to `input.users.map(x => x.filter(…))`
+/// instead of `input.users.filter(x => x.active)`.
+private func jsStream(_ arrayExpr: String, _ stages: [Filter]) -> String {
+    func isSelect(_ f: Filter) -> Bool {
+        if case .call(let name, let args, _) = f,
+           name == "select" || name == "filter", args.count == 1 { return true }
+        return false
+    }
+    var expr = arrayExpr
+    var i = 0
+    while i < stages.count {
+        // select/filter — a predicate on the stream → a sibling `.filter(…)`.
+        if case .call(_, let args, _) = stages[i], isSelect(stages[i]) {
+            expr = "\(expr).filter(x => \(jsChain(flattenPipe(args[0]), subject: "x")))"
+            i += 1
+            continue
+        }
+        // Otherwise take the maximal run of projection stages up to the next
+        // select/filter and project it in one map / flatMap.
+        var j = i
+        while j < stages.count && !isSelect(stages[j]) { j += 1 }
+        let run = Array(stages[i..<j])
+        let op = run.contains(where: isIterate) ? "flatMap" : "map"
+        expr = "\(expr).\(op)(x => \(jsChain(run, subject: "x")))"
+        i = j
+    }
+    return expr
+}
+
 /// Split a top-level comma chain into its operands — the comma analogue of
 /// `flattenPipe`, used to turn `[a, b, c]` into a JS array literal.
 private func flattenComma(_ filter: Filter) -> [Filter] {
@@ -173,18 +206,31 @@ func isBarewordKey(_ s: String) -> Bool {
     return bytes.dropFirst().allSatisfy { isLetterOrUnderscore($0) || isDigit($0) }
 }
 
+/// Map a jq-spelled builtin alias to its canonical es-toolkit name. The single
+/// source of truth for which spelling jig PRESENTS (roadmap §2/§3: aliases are
+/// accepted but never proposed). Aliases still parse and run; only the surfaced
+/// text — `explain` steps, `render`/`fmt` output — is normalized.
+func canonicalBuiltinName(_ name: String) -> String {
+    switch name {
+    case "select": return "filter"
+    case "type": return "typeof"
+    case "add": return "sum"
+    default: return name
+    }
+}
+
 /// JS analogy for a builtin call (best-effort; used only by `jig explain`).
 private func jsCall(_ name: String, _ args: [Filter], subject: String) -> String {
     func cb(_ f: Filter) -> String { "x => \(jsChain(flattenPipe(f), subject: "x"))" }
     switch (name, args.count) {
     case ("length", 0): return "\(subject).length"
     case ("keys", 0), ("keys_unsorted", 0): return "Object.keys(\(subject))"
-    case ("type", 0), ("typeof", 0): return "typeof \(subject)"
+    case ("typeof", 0), ("type", 0): return "typeof \(subject)"
     case ("not", 0): return "!\(subject)"
     case ("reverse", 0): return "[...\(subject)].reverse()"
-    case ("add", 0): return "\(subject).reduce((a, b) => a + b)"
+    case ("sum", 0), ("add", 0): return "\(subject).reduce((a, b) => a + b)"
     case ("map", 1): return "\(subject).map(\(cb(args[0])))"
-    case ("select", 1), ("filter", 1): return "\(subject).filter(\(cb(args[0])))"
+    case ("filter", 1), ("select", 1): return "\(subject).filter(\(cb(args[0])))"
     case ("has", 1): return "(\(render(args[0])) in \(subject))"
     case ("empty", 0): return "[]"
     default: return "\(subject)/* \(name) */"
@@ -239,7 +285,7 @@ private func containsIterate(_ filter: Filter) -> Bool {
     }
 }
 
-private func phrase(_ filter: Filter, mode: JigMode) -> String {
+private func phrase(_ filter: Filter) -> String {
     switch filter {
     case .identity:
         return "pass the value through unchanged (.)"
@@ -258,10 +304,8 @@ private func phrase(_ filter: Filter, mode: JigMode) -> String {
         var base = "iterate: emit each array element / object value"
         if optional {
             base += " — skip inputs that aren't iterable (?)"
-        } else if mode == .humane {
-            base += " — null emits nothing (humane); a scalar errors"
         } else {
-            base += " — error if the input isn't an array or object"
+            base += " — null emits nothing; a non-null scalar errors"
         }
         return base
     case .comma(let a, let b):
@@ -270,13 +314,14 @@ private func phrase(_ filter: Filter, mode: JigMode) -> String {
         return "produce the constant \(writeJSON(v, style: .compact))"
     case .alternative(let a, let b, _):
         return "alternative (//): use (\(render(a))); if it yields no usable value "
-            + "(\(mode == .humane ? "null/empty" : "false/null/empty")), fall back to (\(render(b)))"
+            + "(false/null/empty), fall back to (\(render(b)))"
     case .nullish(let a, let b, _):
         return "nullish (??): use (\(render(a))); only if that is null/empty, fall back to (\(render(b)))"
     case .call(let name, let args, _):
+        let canon = canonicalBuiltinName(name)
         return args.isEmpty
-            ? "call \(name)"
-            : "call \(name) with (\(args.map(render).joined(separator: "; ")))"
+            ? "call \(canon)"
+            : "call \(canon) with (\(args.map(render).joined(separator: "; ")))"
     case .binary(let op, let a, let b, _):
         let lead: String
         switch op {
@@ -330,7 +375,10 @@ public func render(_ filter: Filter) -> String {
     case .nullish(let a, let b, _):
         return "\(render(a)) ?? \(render(b))"
     case .call(let name, let args, _):
-        return args.isEmpty ? name : "\(name)(\(args.map(render).joined(separator: "; ")))"
+        // render() is the seed of `jig fmt` / `explain --canonical`: it must
+        // normalize a jq alias to the canonical builtin name.
+        let canon = canonicalBuiltinName(name)
+        return args.isEmpty ? canon : "\(canon)(\(args.map(render).joined(separator: "; ")))"
     case .binary(let op, let a, let b, _):
         // Parenthesize operands that are themselves infix/compound, so the
         // rendered text re-parses to the SAME tree (precedence-faithful).

@@ -53,19 +53,21 @@ final class ArgsTests: XCTestCase {
         }
     }
 
-    // MARK: --humane flag + subcommands
-
-    func testHumaneFlag() throws {
-        XCTAssertEqual(try parseArgs(["--humane", ".a"]),
-                       .run(Args(filter: ".a", humane: true)))
-    }
+    // MARK: subcommands
 
     func testExplainSubcommand() throws {
         XCTAssertEqual(try parseArgs(["explain", ".a"]),
                        .explain(Args(filter: ".a")))
         // flags follow the subcommand
-        XCTAssertEqual(try parseArgs(["explain", "--humane", ".a"]),
-                       .explain(Args(filter: ".a", humane: true)))
+        XCTAssertEqual(try parseArgs(["explain", "-c", ".a"]),
+                       .explain(Args(filter: ".a", compactOutput: true)))
+    }
+
+    func testHumaneFlagIsNowRejected() throws {
+        // Dual-mode is gone — `--humane` is just an unknown flag (roadmap §5/3).
+        XCTAssertThrowsError(try parseArgs(["--humane", ".a"])) { error in
+            XCTAssertEqual(error as? ArgsParseError, .unknownFlag("--humane"))
+        }
     }
 
     func testCheckSubcommand() throws {

@@ -3,7 +3,7 @@
 // A filter maps ONE input value to a STREAM (array) of outputs. Streams are
 // represented as plain [JigValue] for now — correct and simple. Switching to
 // lazy generation (for `limit`, `first`, infinite generators like `repeat`)
-// is on the roadmap and changes only this file (docs/jq-compat.md).
+// is on the roadmap and changes only this file (docs/roadmap.md).
 //
 // Error contract: every runtime error names the offending part of the
 // program (SourceSpan), states the actual type it met — in jq's vocabulary —
@@ -22,7 +22,7 @@ public struct EvalError: Error, Equatable {
     }
 }
 
-public func evaluate(_ filter: Filter, on input: JigValue, mode: JigMode = .jq) throws -> [JigValue] {
+public func evaluate(_ filter: Filter, on input: JigValue) throws -> [JigValue] {
     switch filter {
     case .identity:
         return [input]
@@ -66,58 +66,58 @@ public func evaluate(_ filter: Filter, on input: JigValue, mode: JigMode = .jq) 
             return items
         case .object(let pairs):
             return pairs.map(\.value)
-        case .null where mode == .humane:
-            // H2 (docs/jq-compat.md mode-diff table): in humane mode a null
-            // flows through iteration as the empty stream instead of
-            // erroring — null already propagates through .foo / .[N], so
-            // this makes .[] consistent.
+        case .null:
+            // A null flows through iteration as the empty stream rather than
+            // erroring — null already propagates quietly through .foo / .[N],
+            // so this makes .[] consistent (jig flavor; see docs/roadmap.md §1).
+            // A non-null scalar is still a hard error, with a humane hint.
             return []
         default:
             if optional { return [] }
             throw EvalError(
                 message: "cannot iterate over \(input.typeName)\(preview(input))",
                 span: span,
-                hint: input == .null
-                    ? "use .[]? , // [] , or run in humane mode (--humane) to treat null as empty"
-                    : "use .[]? to skip non-iterable inputs, or // [] to default missing data")
+                hint: "use .[]? to skip inputs that aren't arrays or objects")
         }
 
     case .pipe(let lhs, let rhs):
         // Feed every output of lhs through rhs, concatenating the streams.
         var out: [JigValue] = []
-        for v in try evaluate(lhs, on: input, mode: mode) {
-            out.append(contentsOf: try evaluate(rhs, on: v, mode: mode))
+        for v in try evaluate(lhs, on: input) {
+            out.append(contentsOf: try evaluate(rhs, on: v))
         }
         return out
 
     case .comma(let lhs, let rhs):
-        return try evaluate(lhs, on: input, mode: mode) + (try evaluate(rhs, on: input, mode: mode))
+        return try evaluate(lhs, on: input) + (try evaluate(rhs, on: input))
 
     case .literal(let value):
         return [value]
 
     case .alternative(let lhs, let rhs, _):
-        // jq `//`: drop false+null on the left; humane (H1): drop only null.
-        return try alternative(lhs, rhs, on: input, mode: mode, keepFalse: mode == .humane)
+        // `//`: keep left outputs that are neither null nor false; otherwise
+        // fall back to the right. For null-only fallback (keeping false) use
+        // `??` — the two operators are kept distinct on purpose (roadmap §3/§5).
+        return try alternative(lhs, rhs, on: input, keepFalse: false)
 
     case .nullish(let lhs, let rhs, _):
-        // `??`: drop only null, both modes.
-        return try alternative(lhs, rhs, on: input, mode: mode, keepFalse: true)
+        // `??`: drop only null (keep false) — the JS nullish-coalescing path.
+        return try alternative(lhs, rhs, on: input, keepFalse: true)
 
     case .call(let name, let args, let span):
-        return try evalCall(name, args, on: input, mode: mode, span: span)
+        return try evalCall(name, args, on: input, span: span)
 
     case .binary(let op, let lhs, let rhs, let span):
         // `and` / `or` short-circuit on the left and yield booleans.
         if op.isLogical {
-            return try evalLogical(op, lhs, rhs, on: input, mode: mode)
+            return try evalLogical(op, lhs, rhs, on: input)
         }
         // Arithmetic / comparison: cartesian product of the two streams. jq
         // desugars `a OP b` to `(b) as $b | (a) as $a | $a OP $b`, so the RHS
         // is the outer loop (and is evaluated first — errors there short out
         // before the LHS runs).
-        let rs = try evaluate(rhs, on: input, mode: mode)
-        let ls = try evaluate(lhs, on: input, mode: mode)
+        let rs = try evaluate(rhs, on: input)
+        let ls = try evaluate(lhs, on: input)
         var out: [JigValue] = []
         out.reserveCapacity(rs.count * ls.count)
         for r in rs {
@@ -128,19 +128,19 @@ public func evaluate(_ filter: Filter, on input: JigValue, mode: JigMode = .jq) 
         return out
 
     case .neg(let inner, let span):
-        return try negate(try evaluate(inner, on: input, mode: mode), span)
+        return try negate(try evaluate(inner, on: input), span)
 
     case .arrayConstruct(let inner):
         // Collect the inner filter's entire stream into ONE array ([] when
         // absent). The sole point where a stream becomes an array value.
         guard let inner else { return [.array([])] }
-        return [.array(try evaluate(inner, on: input, mode: mode))]
+        return [.array(try evaluate(inner, on: input))]
 
     case .objectConstruct(let entries):
-        return try buildObjects(entries, on: input, mode: mode)
+        return try buildObjects(entries, on: input)
 
     case .stringInterp(let parts):
-        return try interpolate(parts, on: input, mode: mode)
+        return try interpolate(parts, on: input)
     }
 }
 
@@ -153,15 +153,14 @@ public func evaluate(_ filter: Filter, on input: JigValue, mode: JigMode = .jq) 
 /// on the OUTSIDE of the existing ones. An embedded stream that is empty (e.g.
 /// `\(empty)`) collapses the accumulator to nothing, so the whole string emits
 /// no output — exactly jq.
-private func interpolate(_ parts: [StringPart], on input: JigValue,
-                         mode: JigMode) throws -> [JigValue] {
+private func interpolate(_ parts: [StringPart], on input: JigValue) throws -> [JigValue] {
     var acc: [String] = [""]
     for part in parts {
         switch part {
         case .literal(let text):
             for i in acc.indices { acc[i] += text }
         case .interp(let f):
-            let outs = try evaluate(f, on: input, mode: mode)
+            let outs = try evaluate(f, on: input)
             var next: [String] = []
             next.reserveCapacity(outs.count * acc.count)
             for v in outs {              // new interpolation — outer (slowest)
@@ -192,15 +191,14 @@ private func interpCoerce(_ v: JigValue) -> String {
 /// product empty (jq), and later entries are then not evaluated. Keys must be
 /// strings; on a duplicate key the last value wins while the first position is
 /// kept (`{a:1,b:2,a:3}` → `{"a":3,"b":2}`).
-private func buildObjects(_ entries: [ObjectEntry], on input: JigValue,
-                          mode: JigMode) throws -> [JigValue] {
+private func buildObjects(_ entries: [ObjectEntry], on input: JigValue) throws -> [JigValue] {
     var combos: [[(key: String, value: JigValue)]] = [[]]
     for entry in entries {
         if combos.isEmpty { break }  // an earlier entry yielded nothing
-        let keys = try evaluate(entry.key, on: input, mode: mode)
+        let keys = try evaluate(entry.key, on: input)
         // Don't evaluate the value when there are no keys — jq's `k as $k | v
         // as $v` pipe short-circuits before binding (and thus evaluating) v.
-        let values = keys.isEmpty ? [] : try evaluate(entry.value, on: input, mode: mode)
+        let values = keys.isEmpty ? [] : try evaluate(entry.value, on: input)
         var next: [[(key: String, value: JigValue)]] = []
         for combo in combos {            // earlier entries — outermost loop
             for k in keys {              // this key — middle (slower than value)
@@ -234,8 +232,8 @@ private func buildObjects(_ entries: [ObjectEntry], on input: JigValue,
 /// filter (always drop null; drop false too unless `keepFalse`); if none
 /// survive, fall back to the right side.
 private func alternative(_ lhs: Filter, _ rhs: Filter, on input: JigValue,
-                         mode: JigMode, keepFalse: Bool) throws -> [JigValue] {
-    let left = try evaluate(lhs, on: input, mode: mode)
+                         keepFalse: Bool) throws -> [JigValue] {
+    let left = try evaluate(lhs, on: input)
     let kept = left.filter { v in
         switch v {
         case .null: return false
@@ -243,7 +241,7 @@ private func alternative(_ lhs: Filter, _ rhs: Filter, on input: JigValue,
         default: return true
         }
     }
-    return kept.isEmpty ? try evaluate(rhs, on: input, mode: mode) : kept
+    return kept.isEmpty ? try evaluate(rhs, on: input) : kept
 }
 
 /// jq truthiness: only `false` and `null` are falsy; everything else

@@ -1,12 +1,12 @@
 import XCTest
 @testable import JigCore
 
-/// Literals + the `//` / `??` operators, including the humane H1 divergence.
+/// Literals + the `//` (drops false+null) / `??` (nullish, drops only null)
+/// operators — kept deliberately distinct (roadmap §3/§5).
 final class LiteralsAndOpsTests: XCTestCase {
 
-    private func run(_ program: String, on json: String = "null",
-                     mode: JigMode = .jq) throws -> [String] {
-        try evaluate(parseFilter(program), on: parseOneJSON(json), mode: mode)
+    private func run(_ program: String, on json: String = "null") throws -> [String] {
+        try evaluate(parseFilter(program), on: parseOneJSON(json))
             .map { writeJSON($0, style: .compact) }
     }
 
@@ -36,21 +36,18 @@ final class LiteralsAndOpsTests: XCTestCase {
         XCTAssertEqual(try run(#"empty // "d""#), [#""d""#])
     }
 
-    // MARK: ?? (nullish) — keeps false, drops only null, both modes
+    // MARK: ?? (nullish) — keeps false, drops only null
 
     func testNullishKeepsFalse() throws {
         XCTAssertEqual(try run(#".a ?? "d""#, on: #"{"a":false}"#), ["false"])
         XCTAssertEqual(try run(#".a ?? "d""#, on: #"{"a":null}"#), [#""d""#])
         XCTAssertEqual(try run(#".a ?? "d""#, on: #"{}"#), [#""d""#])
-        // Nullish is mode-independent.
-        XCTAssertEqual(try run(#".a ?? "d""#, on: #"{"a":false}"#, mode: .humane), ["false"])
     }
 
-    // MARK: H1 — humane `//` becomes nullish (keeps false)
-
-    func testHumaneAlternativeKeepsFalse() throws {
-        XCTAssertEqual(try run(#".a // "d""#, on: #"{"a":false}"#, mode: .humane), ["false"])
-        // null still falls through in humane mode.
-        XCTAssertEqual(try run(#".a // "d""#, on: #"{"a":null}"#, mode: .humane), [#""d""#])
+    // `//` and `??` are distinct: `//` drops false (→ "d"), `??` keeps it.
+    // (Old dual-mode "humane //" that kept false is gone; use `??` for that.)
+    func testAlternativeAndNullishDifferOnFalse() throws {
+        XCTAssertEqual(try run(#".a // "d""#, on: #"{"a":false}"#), [#""d""#])
+        XCTAssertEqual(try run(#".a ?? "d""#, on: #"{"a":false}"#), ["false"])
     }
 }

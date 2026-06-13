@@ -1,12 +1,13 @@
-// Builtin functions — wave 1 (docs/jq-compat.md roadmap step 4). Names and
-// semantics track jq; ECMAScript-named aliases (typeof = type,
-// filter = select) are additive sugar for JS/TS users (jq-compat.md
-// "ECMAScript 由来のエルゴノミクス"). Dispatched from Evaluator's `.call`.
+// Builtin functions — wave 1 (docs/roadmap.md §3). The CANONICAL name is the
+// es-toolkit / JS spelling (`typeof`, `filter`, `sum`); the jq name is kept as
+// an accepted ALIAS (`type`, `select`, `add`) so jq muscle memory still parses,
+// but docs / help / `explain` only ever present the canonical form (roadmap §2
+// "one obvious way"). Dispatched from Evaluator's `.call`.
 //
 // Every unknown name produces a located "not defined" error — never a trap.
 
 func evalCall(_ name: String, _ args: [Filter], on input: JigValue,
-              mode: JigMode, span: SourceSpan) throws -> [JigValue] {
+              span: SourceSpan) throws -> [JigValue] {
     switch (name, args.count) {
     case ("empty", 0):
         return []
@@ -16,36 +17,36 @@ func evalCall(_ name: String, _ args: [Filter], on input: JigValue,
         return [try keysOf(input, sorted: true, span)]
     case ("keys_unsorted", 0):
         return [try keysOf(input, sorted: false, span)]
-    case ("type", 0), ("typeof", 0):  // typeof: ECMAScript alias
+    case ("typeof", 0), ("type", 0):  // canonical: typeof — `type` is the jq alias
         return [.string(input.typeName)]
     case ("not", 0):
         return [.bool(!truthy(input))]
     case ("reverse", 0):
         return [try reverseOf(input, span)]
-    case ("add", 0):
+    case ("sum", 0), ("add", 0):  // canonical: sum — `add` is the jq alias
         return [try addOf(input, span)]
 
     case ("map", 1):
-        // jq: def map(f): [.[] | f];  — reuses iterate, so it inherits H2.
-        let elements = try evaluate(.iterate(optional: false, span: span), on: input, mode: mode)
+        // jq: def map(f): [.[] | f];  — reuses iterate (so map over null is []).
+        let elements = try evaluate(.iterate(optional: false, span: span), on: input)
         var out: [JigValue] = []
         for e in elements {
-            out.append(contentsOf: try evaluate(args[0], on: e, mode: mode))
+            out.append(contentsOf: try evaluate(args[0], on: e))
         }
         return [.array(out)]
 
-    case ("select", 1), ("filter", 1):  // filter: ECMAScript alias
-        // jq: def select(f): if f then . else empty end; — one input per
-        // truthy output of f.
+    case ("filter", 1), ("select", 1):  // canonical: filter — `select` is the jq alias
+        // one input passes through per truthy output of f
+        // (jq spelled this `select`).
         var out: [JigValue] = []
-        for v in try evaluate(args[0], on: input, mode: mode) where truthy(v) {
+        for v in try evaluate(args[0], on: input) where truthy(v) {
             out.append(input)
         }
         return out
 
     case ("has", 1):
         var out: [JigValue] = []
-        for key in try evaluate(args[0], on: input, mode: mode) {
+        for key in try evaluate(args[0], on: input) {
             out.append(.bool(try hasKey(input, key, span)))
         }
         return out
@@ -54,8 +55,8 @@ func evalCall(_ name: String, _ args: [Filter], on input: JigValue,
         throw EvalError(
             message: "\(name)/\(args.count) is not defined",
             span: span,
-            hint: "implemented builtins (v0): length, keys, keys_unsorted, type/typeof, "
-                + "not, reverse, add, empty, map(f), select(f)/filter(f), has(k) — more on the roadmap")
+            hint: "implemented builtins (v0): length, keys, keys_unsorted, typeof, "
+                + "not, reverse, sum, empty, map(f), filter(f), has(k) — more on the roadmap")
     }
 }
 

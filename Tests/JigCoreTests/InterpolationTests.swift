@@ -1,17 +1,16 @@
 import XCTest
 @testable import JigCore
 
-/// String interpolation `"\(…)"` and its additive ECMAScript alias `"${…}"` —
-/// docs/jq-compat.md step 2 (the last of construction). Golden-style
-/// parse → eval → write checks; every `\(…)` expectation was confirmed
-/// byte-for-byte against the jq 1.8 reference binary (jq mode must not diverge).
-/// `${…}` has no jq oracle — jq treats `${` as literal text — so its tests
-/// assert it produces the SAME result as the equivalent `\(…)`.
+/// String interpolation `"\(…)"` and its ECMAScript spelling `"${…}"` —
+/// roadmap step 2 (the last of construction). Golden-style parse → eval → write
+/// checks against jig's own spec; the `\(…)` expectations were originally
+/// cross-checked byte-for-byte against jq 1.8. `${…}` has no jq oracle (jq
+/// treats `${` as literal text), so its tests assert it produces the SAME
+/// result as the equivalent `\(…)`.
 final class InterpolationTests: XCTestCase {
 
-    private func run(_ program: String, on json: String = "null",
-                     mode: JigMode = .jq) throws -> [String] {
-        try evaluate(parseFilter(program), on: parseOneJSON(json), mode: mode)
+    private func run(_ program: String, on json: String = "null") throws -> [String] {
+        try evaluate(parseFilter(program), on: parseOneJSON(json))
             .map { writeJSON($0, style: .compact) }
     }
 
@@ -170,7 +169,7 @@ final class InterpolationTests: XCTestCase {
 
     func testParserNeverTrapsOnInterpolationPrefixes() {
         // Mini-fuzz: every prefix of a gnarly interpolation program must parse
-        // or error, never trap (real fuzzing is roadmap — docs/jq-compat.md).
+        // or error, never trap (real fuzzing is roadmap — docs/roadmap.md).
         let gnarly = #""a\(.x)b${.y|length}c\((1,2)+3)" | {k: "\(.z)"}"#
         for end in gnarly.indices {
             _ = try? parseFilter(String(gnarly[..<end]))
@@ -218,7 +217,7 @@ final class InterpolationTests: XCTestCase {
     }
 
     func testExplainNamesInterpolation() throws {
-        let out = explain(try parseFilter(#""hi \(.x)""#), source: #""hi \(.x)""#, mode: .jq)
+        let out = explain(try parseFilter(#""hi \(.x)""#), source: #""hi \(.x)""#)
         XCTAssertTrue(out.contains("build a string by interpolation"), out)
         XCTAssertTrue(out.contains("`hi ${input.x}`"), out)
     }

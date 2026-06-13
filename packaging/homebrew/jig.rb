@@ -3,7 +3,7 @@
 # sync; update-tap.yml bumps `url`/`sha256` there on every published
 # release (the FIRST copy into the tap is manual).
 class Jig < Formula
-  desc "Jq-compatible JSON processor with humane errors"
+  desc "Ergonomic JSON processor with humane diagnostics"
   homepage "https://github.com/akira-toriyama/jig"
   url "https://github.com/akira-toriyama/jig/archive/refs/tags/v0.1.0.tar.gz"
   sha256 "0000000000000000000000000000000000000000000000000000000000000000"
@@ -19,12 +19,12 @@ class Jig < Formula
 
   def caveats
     <<~EOS
-      jig runs jq filters with source-span diagnostics and hints:
+      jig runs jq-inspired filters with source-span diagnostics and hints:
 
         curl -s https://api.example.com/users | jig '.[] | .name'
 
-      Compatibility policy and the supported filter subset:
-        #{homepage}/blob/main/docs/jq-compat.md
+      Direction and the supported filter subset:
+        #{homepage}/blob/main/docs/roadmap.md
     EOS
   end
 

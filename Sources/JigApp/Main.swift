@@ -34,13 +34,6 @@ enum JigApp {
         }
     }
 
-    /// Resolve the effective mode from flag / pragma / env (Mode.swift).
-    static func mode(for args: Args) -> JigMode {
-        resolveMode(humaneFlag: args.humane,
-                    program: args.filter,
-                    env: ProcessInfo.processInfo.environment["JIG_MODE"])
-    }
-
     /// Compile `args.filter` or print a diagnostic and exit(3).
     @MainActor
     static func compileOrExit(_ args: Args) -> Filter {
@@ -60,7 +53,7 @@ enum JigApp {
     @MainActor
     static func explainFilter(_ args: Args) {
         let filter = compileOrExit(args)
-        print(explain(filter, source: args.filter, mode: mode(for: args)))
+        print(explain(filter, source: args.filter))
         exit(0)
     }
 
@@ -70,7 +63,7 @@ enum JigApp {
     static func checkFilter(_ args: Args) {
         let filter = compileOrExit(args)
         _ = filter
-        stderrLine("jig: filter ok (\(mode(for: args).label))")
+        stderrLine("jig: filter ok")
         exit(0)
     }
 
@@ -79,8 +72,7 @@ enum JigApp {
     @MainActor
     static func run(_ args: Args) {
         let filter = compileOrExit(args)
-        let mode = mode(for: args)
-        Log.debug("filter parsed: \(args.filter) [\(mode.label)]")
+        Log.debug("filter parsed: \(args.filter)")
 
         let style: JSONStyle = args.compactOutput ? .compact : .pretty
         var hadRuntimeError = false
@@ -89,7 +81,7 @@ enum JigApp {
         forEachInput(args) { input in
             inputIndex += 1
             do {
-                for output in try evaluate(filter, on: input, mode: mode) {
+                for output in try evaluate(filter, on: input) {
                     if args.rawOutput, case .string(let s) = output {
                         print(s)
                     } else {
@@ -184,14 +176,14 @@ enum JigApp {
 
     static func printHelp() {
         print("""
-        jig \(JigVersion.current) — a jq-compatible JSON processor with humane errors
+        jig \(JigVersion.current) — an ergonomic JSON processor with humane diagnostics
 
         USAGE
           some-cmd | jig [flags] <filter> [files...]
           jig explain [flags] <filter>     describe the filter (+ JS analogy)
           jig check   [flags] <filter>     compile-only CI gate (exit 0 / 3)
 
-        FILTER (v0 subset — full jq language is the roadmap, docs/jq-compat.md)
+        FILTER (v0 subset — the roadmap is docs/roadmap.md)
           .                identity
           .foo.bar         field access (append ? to ignore type errors)
           .[0]  .[-1]      array index
@@ -213,16 +205,14 @@ enum JigApp {
           # ...            comment to end of line
 
         BUILTINS (v0)
-          length keys keys_unsorted type not reverse add empty
-          map(f) select(f) has(k)
-          ECMAScript aliases: typeof (=type), filter (=select)
+          length keys keys_unsorted typeof not reverse sum empty
+          map(f) filter(f) has(k)
+          jq aliases (accepted, not canonical): type (=typeof), add (=sum), select (=filter)
 
         FLAGS
           -c, --compact-output   one line per output (default: 2-space pretty)
           -r, --raw-output       print top-level strings without quotes
           -n, --null-input       don't read input; run the filter once on null
-          --humane               humane mode: fix jq's semantic warts
-                                 (also: # jig:humane pragma, or JIG_MODE=humane)
           -h, --help             this help
           -V, --version          version
 

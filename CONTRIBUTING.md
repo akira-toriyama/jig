@@ -7,18 +7,20 @@ should still feel like *jig*". The points below help that.
 
 ## What this is
 
-`jig` is a jq-compatible JSON processor. Two principles drive everything:
+`jig` is an ergonomic, jq-inspired JSON processor with humane diagnostics. It
+no longer chases byte-for-byte jq compatibility — direction lives in
+[docs/roadmap.md](docs/roadmap.md). Two principles drive everything:
 
-1. **Compatibility is a contract** — existing jq programs must produce the
-   same stdout bytes and exit codes. The rules (and the list of deliberate
-   deviations) live in [docs/jq-compat.md](docs/jq-compat.md); changes that
-   touch compatibility update that file **in the same PR**.
+1. **One semantics, predictable for AI and humans** — there is no jq/humane
+   mode toggle. jig keeps the jq spellings that have no better idiom and adopts
+   a saner default where one clearly exists (e.g. `.[]` over null → empty;
+   `//` drops false+null, `??` is nullish). Vocabulary is es-toolkit-canonical
+   (jq names accepted as aliases). New behavior is reflected in the roadmap.
 2. **Diagnostics are the product** — every error carries a source span, a
-   jq-vocabulary type name, and a hint. If a change makes an error message
-   vaguer, it's a regression even when the behavior is right.
+   type name, and a hint. If a change makes an error message vaguer, it's a
+   regression even when the behavior is right.
 
-If a feature would violate either, it probably belongs in a different tool
-(or behind an additive, jq-rejected syntax — see the contract).
+If a feature would violate either, it probably belongs in a different tool.
 
 ## Project layout
 

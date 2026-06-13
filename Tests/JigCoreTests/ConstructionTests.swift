@@ -1,14 +1,13 @@
 import XCTest
 @testable import JigCore
 
-/// Object / array construction (`{a: .b}`, `[.x]`) — docs/jq-compat.md step 2.
-/// Golden-style parse → eval → write checks; every expectation was confirmed
-/// byte-for-byte against the jq 1.8 reference binary (jq mode must not diverge).
+/// Object / array construction (`{a: .b}`, `[.x]`) — roadmap step 2.
+/// Golden-style parse → eval → write checks against jig's own spec; the
+/// expectations were originally cross-checked byte-for-byte against jq 1.8.
 final class ConstructionTests: XCTestCase {
 
-    private func run(_ program: String, on json: String = "null",
-                     mode: JigMode = .jq) throws -> [String] {
-        try evaluate(parseFilter(program), on: parseOneJSON(json), mode: mode)
+    private func run(_ program: String, on json: String = "null") throws -> [String] {
+        try evaluate(parseFilter(program), on: parseOneJSON(json))
             .map { writeJSON($0, style: .compact) }
     }
 
@@ -198,7 +197,7 @@ final class ConstructionTests: XCTestCase {
 
     func testConstructionParserNeverTraps() {
         // Mini-fuzz: every prefix of a gnarly construction program must parse
-        // or error, never trap (real fuzzing is roadmap — docs/jq-compat.md).
+        // or error, never trap (real fuzzing is roadmap — docs/roadmap.md).
         let gnarly = #"{a:(1,2), (.[]): [.x // 9 | .+1], "k": {n}, }"#
         for end in gnarly.indices {
             _ = try? parseFilter(String(gnarly[..<end]))

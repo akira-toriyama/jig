@@ -3,13 +3,14 @@ import XCTest
 
 final class ExplainTests: XCTestCase {
 
-    private func explainOf(_ program: String, mode: JigMode = .jq) throws -> String {
-        try explain(parseFilter(program), source: program, mode: mode)
+    private func explainOf(_ program: String) throws -> String {
+        try explain(parseFilter(program), source: program)
     }
 
-    func testHeaderEchoesSourceAndMode() throws {
+    func testHeaderEchoesSource() throws {
         let out = try explainOf(".a | .b")
-        XCTAssertTrue(out.contains("jig explain (jq mode)"))
+        XCTAssertTrue(out.contains("jig explain"))
+        XCTAssertFalse(out.contains("mode"))  // dual-mode is gone (roadmap §5/3)
         XCTAssertTrue(out.contains("filter: .a | .b"))
     }
 
@@ -20,11 +21,10 @@ final class ExplainTests: XCTestCase {
         XCTAssertTrue(out.contains("3. take the \"name\" field"))
     }
 
-    func testHumaneIterateWordingAndNote() throws {
-        let out = try explainOf(".items[]", mode: .humane)
-        XCTAssertTrue(out.contains("humane mode"))
-        XCTAssertTrue(out.contains("null emits nothing (humane)"))
-        XCTAssertTrue(out.contains("(H2)"))
+    func testIterateWordingAndNullNote() throws {
+        let out = try explainOf(".items[]")
+        XCTAssertTrue(out.contains("null emits nothing"), out)
+        XCTAssertTrue(out.contains("iterating a null value emits nothing"), out)
     }
 
     // MARK: JavaScript analogy
@@ -37,6 +37,43 @@ final class ExplainTests: XCTestCase {
     func testJsFlatMapWhenNestedIterate() {
         XCTAssertEqual(jsEquivalent(try! parseFilter(".a[] | .b[]")),
                        "input.a.flatMap(x => x.b)")
+    }
+
+    // Regression (roadmap §4 bug ②): select/filter after `.[]` must lower as a
+    // SIBLING `.filter(…)`, not nest inside the `.map(…)` callback.
+    func testJsSelectAfterIterateHoistsToFilter() {
+        XCTAssertEqual(jsEquivalent(try! parseFilter(".users[] | select(.active)")),
+                       "input.users.filter(x => x.active)")
+    }
+
+    func testJsSelectThenProjectionAfterIterate() {
+        XCTAssertEqual(jsEquivalent(try! parseFilter(".users[] | select(.active) | .name")),
+                       "input.users.filter(x => x.active).map(x => x.name)")
+    }
+
+    func testJsChainedSelectsAfterIterate() {
+        XCTAssertEqual(jsEquivalent(try! parseFilter(".users[] | select(.active) | select(.verified)")),
+                       "input.users.filter(x => x.active).filter(x => x.verified)")
+    }
+
+    func testJsProjectionThenSelectAfterIterate() {
+        XCTAssertEqual(jsEquivalent(try! parseFilter(".[] | .a | select(.x)")),
+                       "input.map(x => x.a).filter(x => x.x)")
+    }
+
+    // MARK: canonical presentation (aliases parse, but explain/render show canonical)
+
+    func testExplainStepsUseCanonicalBuiltinName() throws {
+        let out = try explainOf("select(.x)")
+        XCTAssertTrue(out.contains("call filter"), out)
+        XCTAssertFalse(out.contains("call select"), out)
+    }
+
+    func testRenderNormalizesAliasesToCanonical() throws {
+        // render() is the `jig fmt` seed — it must emit the canonical spelling.
+        XCTAssertEqual(render(try parseFilter("select(.x)")), "filter(.x)")
+        XCTAssertEqual(render(try parseFilter("type")), "typeof")
+        XCTAssertEqual(render(try parseFilter("add")), "sum")
     }
 
     func testJsNegativeIndexUsesAt() {

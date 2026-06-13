@@ -5,7 +5,7 @@
 //
 // Every node that can fail at runtime carries the SourceSpan of its source
 // text, so evaluator errors point at the exact spot in the program — the #1
-// jq complaint jig exists to fix (docs/jq-compat.md).
+// jq complaint jig exists to fix (docs/roadmap.md).
 
 /// Half-open byte range [start, end) into the program source.
 public struct SourceSpan: Sendable, Equatable {
@@ -34,12 +34,11 @@ public indirect enum Filter: Sendable, Equatable {
     /// A constant scalar: `42`, `"text"`, `true`, `false`, `null`. Ignores
     /// its input and emits the value.
     case literal(JigValue)
-    /// `a // b` — jq's alternative: emits a's outputs that are neither false
-    /// nor null; if there are none, emits b's. In humane mode it drops only
-    /// null (H1), matching `??`.
+    /// `a // b` — alternative: emits a's outputs that are neither false nor
+    /// null; if there are none, emits b's. (For null-only fallback use `??`.)
     case alternative(Filter, Filter, span: SourceSpan)
-    /// `a ?? b` — nullish coalescing: emits a's non-null outputs; if there
-    /// are none, emits b's. Same in both modes (additive; jq rejects `??`).
+    /// `a ?? b` — nullish coalescing: emits a's non-null outputs (keeps
+    /// false); if there are none, emits b's. The ECMAScript spelling jq lacks.
     case nullish(Filter, Filter, span: SourceSpan)
     /// A builtin/function call: `length`, `map(f)`, `has(k)`. Arguments are
     /// `;`-separated filters.
@@ -47,7 +46,7 @@ public indirect enum Filter: Sendable, Equatable {
     /// An infix operator: arithmetic (`+ - * / %`), comparison
     /// (`== != < <= > >=`), or logical (`and` / `or`). Both sides are
     /// filters; arithmetic/comparison form a cartesian product of the two
-    /// output streams, logical ops short-circuit (docs/jq-compat.md step 3).
+    /// output streams, logical ops short-circuit (docs/roadmap.md step 3).
     case binary(BinOp, Filter, Filter, span: SourceSpan)
     /// Unary minus: `-.x`, `-(…)`. (A `-` directly before digits is folded
     /// into a number literal so its source text is preserved, like jq.)
@@ -79,7 +78,7 @@ public indirect enum Filter: Sendable, Equatable {
 /// One fragment of an interpolated string (`Filter.stringInterp`): a run of
 /// literal text, or an embedded filter whose output is spliced in. The `${…}`
 /// spelling is an additive ECMAScript alias for jq's `\(…)` — both parse to
-/// `.interp` (docs/jq-compat.md, "ECMAScript エルゴノミクス"). No `indirect` is
+/// `.interp` (docs/roadmap.md, "ECMAScript エルゴノミクス"). No `indirect` is
 /// needed: `Filter` is already an indirect enum (a pointer-sized value), so
 /// nesting it here through the part array is bounded.
 public enum StringPart: Sendable, Equatable {

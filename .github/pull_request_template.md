@@ -20,11 +20,12 @@ commit message as the PR title — keep them in sync.
 - [ ] (if user-facing) updated `README.md` AND `README.ja.md`
 - [ ] (if a new constraint) added a "Non-obvious constraints" line in `CLAUDE.md`
 
-## jq compatibility review
+## semantics review
 
-- [ ] 既存の jq プログラムの stdout / exit code を変えていない
-      （変える場合は [docs/jq-compat.md](../blob/main/docs/jq-compat.md) の
-      契約に照らして **同 PR で** 方針を更新し、理由を本文に書く）
+- [ ] 意味論を一つに保っている（dual-mode / jq 互換契約は無い）。意味論を
+      変える場合は [docs/roadmap.md](../blob/main/docs/roadmap.md) に **同 PR で**
+      反映し、理由を本文に書く（破壊的変更はロードマップに沿って可）
+- [ ] 語彙は es-toolkit 正典（jq 名は alias 受理のみ・docs/explain は正典形）
 - [ ] 新しいエラーは span + hint を持つ（bare throw を増やしていない）
 
 ## Glossary review

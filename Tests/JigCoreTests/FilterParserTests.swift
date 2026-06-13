@@ -81,6 +81,27 @@ final class FilterParserTests: XCTestCase {
         }
     }
 
+    func testArrowInCallArgsRedirectsToBareFilter() {
+        // The JS-arrow reflex `filter(u => u.active)` must redirect to jig's
+        // bare-filter form — NOT mis-hint toward `==` (the old bug, roadmap §4).
+        XCTAssertThrowsError(try parseFilter("filter(u => u.active)")) { error in
+            guard let e = error as? FilterParseError else { return XCTFail() }
+            XCTAssertTrue(e.message.contains("=>"), e.message)
+            XCTAssertTrue(e.hint?.contains("bare filter") == true, e.hint ?? "nil")
+            XCTAssertFalse(e.hint?.contains("for equality") == true,
+                           "arrow must not be mis-hinted as an equality typo")
+        }
+    }
+
+    func testBareEqualsStillHintsEquality() {
+        // A lone `=` (not `=>`) keeps the equality redirect.
+        XCTAssertThrowsError(try parseFilter("filter(.a = .b)")) { error in
+            guard let e = error as? FilterParseError else { return XCTFail() }
+            XCTAssertTrue(e.message.contains("\"=\""), e.message)
+            XCTAssertTrue(e.hint?.contains("==") == true, e.hint ?? "nil")
+        }
+    }
+
     func testDiagnosticRenderPointsAtTheSpan() throws {
         do {
             _ = try parseFilter(".items[x]")
@@ -156,7 +177,7 @@ final class FilterParserTests: XCTestCase {
 
     func testNoInputCrashesTheParser() {
         // Mini-fuzz: every prefix of a gnarly program must error or parse,
-        // never trap. (Real fuzzing is roadmap — docs/jq-compat.md.)
+        // never trap. (Real fuzzing is roadmap — docs/roadmap.md.)
         let gnarly = ".a[-12]?.b | .c, (.d[].e) | .[0] ?? 'x' $v “q”"
         for end in gnarly.indices {
             _ = try? parseFilter(String(gnarly[..<end]))
