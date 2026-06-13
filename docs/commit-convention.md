@@ -29,7 +29,7 @@ This repo commits with **gitmoji + Conventional Commits**; from the messages
 :bug: fix(json): reject unpaired UTF-16 surrogates with position
 :zap: perf(parser): fast path for ASCII identifiers
 :boom: feat(cli)!: change default output to compact
-:memo: docs(compat): record ?? operator decision in jq-compat.md
+:memo: docs(roadmap): record ?? vs // operator decision
 :wrench: chore: tidy .gitignore
 :green_heart: ci: pin macos-15 runner
 ```

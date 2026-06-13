@@ -1,13 +1,12 @@
 // swift-tools-version:6.0
 //
-// jig — a jq-compatible JSON processor with humane errors.
+// jig — an ergonomic JSON processor with humane diagnostics.
 //
 // A jig is the workshop fixture that holds the stock and guides the cutting
-// tool — which is exactly what a query program does to JSON. jig aims for
-// practical compatibility with jq (github.com/jqlang/jq) while fixing the
-// parts users trip over: diagnostics with source spans + hints, consistent
-// number handling, no parser crashes. Compatibility policy:
-// docs/jq-compat.md.
+// tool — which is exactly what a query program does to JSON. jig speaks a
+// small, jq-inspired filter language and invests in the parts users trip
+// over: diagnostics with source spans + hints, consistent number handling,
+// no parser crashes. Direction: docs/roadmap.md.
 //
 // Architecture is hexagonal (Ports & Adapters), mirroring facet / chord /
 // glance / perch — but as a pure stdin/stdout filter jig has NO AppKit

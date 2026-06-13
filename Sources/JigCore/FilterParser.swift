@@ -686,9 +686,8 @@ private struct FilterParser {
             if b == 0x20 || b == 0x09 || b == 0x0A || b == 0x0D {
                 pos += 1
             } else if b == UInt8(ascii: "#") {
-                // jq-style comment: `#` to end of line. Doubles as the
-                // carrier for the `# jig:humane` mode pragma (Mode.swift
-                // pre-scans for it; here we just skip it).
+                // jq-style comment: `#` to end of line, skipped here. (jig has
+                // one semantics — there is no `# jig:humane` mode pragma.)
                 while let c = peek(), c != 0x0A { pos += 1 }
             } else {
                 return
