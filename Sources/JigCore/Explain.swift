@@ -206,6 +206,19 @@ func isBarewordKey(_ s: String) -> Bool {
     return bytes.dropFirst().allSatisfy { isLetterOrUnderscore($0) || isDigit($0) }
 }
 
+/// Map a jq-spelled builtin alias to its canonical es-toolkit name. The single
+/// source of truth for which spelling jig PRESENTS (roadmap §2/§3: aliases are
+/// accepted but never proposed). Aliases still parse and run; only the surfaced
+/// text — `explain` steps, `render`/`fmt` output — is normalized.
+func canonicalBuiltinName(_ name: String) -> String {
+    switch name {
+    case "select": return "filter"
+    case "type": return "typeof"
+    case "add": return "sum"
+    default: return name
+    }
+}
+
 /// JS analogy for a builtin call (best-effort; used only by `jig explain`).
 private func jsCall(_ name: String, _ args: [Filter], subject: String) -> String {
     func cb(_ f: Filter) -> String { "x => \(jsChain(flattenPipe(f), subject: "x"))" }
@@ -305,9 +318,10 @@ private func phrase(_ filter: Filter) -> String {
     case .nullish(let a, let b, _):
         return "nullish (??): use (\(render(a))); only if that is null/empty, fall back to (\(render(b)))"
     case .call(let name, let args, _):
+        let canon = canonicalBuiltinName(name)
         return args.isEmpty
-            ? "call \(name)"
-            : "call \(name) with (\(args.map(render).joined(separator: "; ")))"
+            ? "call \(canon)"
+            : "call \(canon) with (\(args.map(render).joined(separator: "; ")))"
     case .binary(let op, let a, let b, _):
         let lead: String
         switch op {
@@ -361,7 +375,10 @@ public func render(_ filter: Filter) -> String {
     case .nullish(let a, let b, _):
         return "\(render(a)) ?? \(render(b))"
     case .call(let name, let args, _):
-        return args.isEmpty ? name : "\(name)(\(args.map(render).joined(separator: "; ")))"
+        // render() is the seed of `jig fmt` / `explain --canonical`: it must
+        // normalize a jq alias to the canonical builtin name.
+        let canon = canonicalBuiltinName(name)
+        return args.isEmpty ? canon : "\(canon)(\(args.map(render).joined(separator: "; ")))"
     case .binary(let op, let a, let b, _):
         // Parenthesize operands that are themselves infix/compound, so the
         // rendered text re-parses to the SAME tree (precedence-faithful).

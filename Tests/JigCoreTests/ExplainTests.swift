@@ -61,6 +61,21 @@ final class ExplainTests: XCTestCase {
                        "input.map(x => x.a).filter(x => x.x)")
     }
 
+    // MARK: canonical presentation (aliases parse, but explain/render show canonical)
+
+    func testExplainStepsUseCanonicalBuiltinName() throws {
+        let out = try explainOf("select(.x)")
+        XCTAssertTrue(out.contains("call filter"), out)
+        XCTAssertFalse(out.contains("call select"), out)
+    }
+
+    func testRenderNormalizesAliasesToCanonical() throws {
+        // render() is the `jig fmt` seed — it must emit the canonical spelling.
+        XCTAssertEqual(render(try parseFilter("select(.x)")), "filter(.x)")
+        XCTAssertEqual(render(try parseFilter("type")), "typeof")
+        XCTAssertEqual(render(try parseFilter("add")), "sum")
+    }
+
     func testJsNegativeIndexUsesAt() {
         XCTAssertEqual(jsEquivalent(try! parseFilter(".items[-1]")),
                        "input.items.at(-1)")
