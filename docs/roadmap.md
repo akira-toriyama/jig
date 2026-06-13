@@ -12,16 +12,16 @@
 
 ---
 
-## 現在地（2026-06-13 時点）
+## 現在地（2026-06-14 時点）
 
 **実装済み (v0)**:
 
-- コア: `.` `.foo` `.foo?` `.[N]` `.[]` `|` `,` `(…)`・`#` コメント・`-c`/`-r`/`-n`・stream 入力・number literal 保存・**humane 診断基盤**（span + 型名 + hint + caret）・`jig explain`（JS 等価つき）・`jig check`
-- リテラル / 演算子: scalar literals・算術 `+ - * / %`・比較 `== != < <= > >=`・論理 `and`/`or`・単項マイナス・`//`/`??`
+- コア: `.` `.foo` `.foo?` `.[N]` `.[]`（null → **空ストリーム** / 非 null scalar はエラー）`|` `,` `(…)`・`#` コメント・`-c`/`-r`/`-n`・stream 入力・number literal 保存・**humane 診断基盤**（span + 型名 + hint + caret）・`jig explain`（JS 等価つき）・`jig check`
+- リテラル / 演算子: scalar literals・算術 `+ - * / %`・比較 `== != < <= > >=`・論理 `and`/`or`・単項マイナス・`//`（false+null を落とす）・`??`（nullish ＝ null のみ落とす）
 - 構築 / 補間: object/array construction `{a:.b}` `[.x]`（短縮形・計算キー）・**文字列補間 `\(…)` / `${…}`**（PR #10, step 2 完了）
-- builtin 第1波: `length keys keys_unsorted type(typeof) not reverse add empty map(f) select(f)(filter) has(k)`
+- builtin 第1波（**正典＝es-toolkit 名**）: `length keys keys_unsorted typeof not reverse sum empty map(f) filter(f) has(k)`（jq 名 `type` / `add` / `select` は alias として受理）
 
-**この方針転換で決まったこと**（実装は次セッション以降）: ↓ §1〜§5。
+**2026-06-14 クリーンアップ＆再ポジショニング・セッション = §5 step 1〜4 完了**: バグ①② 修正・**dual-mode 撤去（意味論ひとつ）**・**jq 互換負債の一掃**・**es-toolkit 正典化（typeof/filter/sum）**。詳細は §5・§8。残りの方針転換実装（Wave1 builtin・補完エンジン…）は §1〜§5 / 次セッション以降。
 
 ---
 
@@ -221,11 +221,11 @@ jig の新規性はパイプでなくここに全振りする。
 
 ## 5. 実装シーケンス（ROI 順・リレー計画）
 
-1. **バグ① `=>` 誤誘導ヒント修正**（最高ROI・数時間・意味論変更なし）← **次セッションの最初の一歩**
-2. **バグ② explain `≈ JS:` の select 過剰ネスト修正**
-3. **jq-compat / dual-mode 撤去**（決定①）: `--humane`/`JIG_MODE`/`# jig:humane` を削除しモード1本化、README の dual-mode 節 / `--help` の "jq-compatible" 表記 / `docs/jq-compat.md` を es-toolkit 方針へ更新。低リスク・製品像を明確化。
-4. **es-toolkit / JS 名を正典化**（決定①の②）: `evalCall` の switch で `filter`/`typeof` を正典に昇格＋`sumBy`/`groupBy`/`orderBy`… を追加（`filter=select` と同パターン）。
-5. **Wave1 合成セットで「小さく重ねる」を E2E 成立**（決定③）: `groupBy`(オブジェクト返し) / `mapValues` / `orderBy`(多キー) / `toPairs`・`fromPairs` ＋ 配列スライス `.[a:b]`（今 `unexpected :`）＋ `range`。`countBy` = `groupBy\|mapValues(length)`。
+1. ✅ **バグ① `=>` 誤誘導ヒント修正**（done 2026-06-14）: call 引数の `=>` を検出し「bare filter を使え（`filter(.active)`）」へ redirect。`=` 単体は equality hint 維持。
+2. ✅ **バグ② explain `≈ JS:` の select 過剰ネスト修正**（done 2026-06-14）: `.[]` 後段を `jsStream()` で lower、select/filter は sibling `.filter(…)` に hoist、projection は `.map`/`.flatMap` に畳む。
+3. ✅ **jq-compat / dual-mode 撤去**（done 2026-06-14・決定①）: `Mode.swift` 削除、`--humane`/`JIG_MODE`/`# jig:humane` 撤去、`mode` 引数を evaluate/evalCall/evalLogical/explain から除去しモード1本化。README ×2 / CLAUDE / glossary / help / Package.swift / CONTRIBUTING / PR template / run.sh / homebrew formula を再ポジショニング、`docs/jq-compat.md` は SUPERSEDED バナー付きで保存。**意味論の確定（破壊的・記録）**: ↓ §8 の「2026-06-14 決定」。
+4. ✅ **es-toolkit / JS 名を正典化**（done 2026-06-14・決定①の②）: 実装が既にある builtin のみ昇格 ＝ `typeof`(←type) / `filter`(←select) / `sum`(←add)。help・explain step・error hint・`render()`（=fmt の種）は**正典のみ**を提示（`canonicalBuiltinName()` が単一の真実源）。**`sumBy`/`groupBy`/`orderBy`… は実装が未だ無いので step 5 へ**（alias だけ足すと未実装を指す）。
+5. **Wave1 合成セットで「小さく重ねる」を E2E 成立**（決定③）← **次セッションの最初の一歩**: `groupBy`(オブジェクト返し) / `mapValues` / `orderBy`(多キー) / `toPairs`・`fromPairs` ＋ 配列スライス `.[a:b]`（今 `unexpected :`）＋ `range`。`countBy` = `groupBy\|mapValues(length)`。正典化パターン（§5-4・`canonicalBuiltinName` + evalCall switch）に乗せる。
 6. **補完エンジン `jig complete`（B）**（決定②）: スキーマ認識の動的補完（builtin＋入力の実フィールド名）。**AI 呼び出し可** → **(C) 対話モード**（fish 風 ghost＋ライブプレビュー）→ **(A) 静的補完**同梱。詳細 §4。
 7. **`jig lint`**（or explain 拡張）: top-level `,` fan-out 注記
 8. `|>` レキサ・エイリアス（〜3行、`fmt`/render で `|` に正規化）
@@ -257,7 +257,11 @@ jig の新規性はパイプでなくここに全振りする。
 
 ## 8. リレー引き継ぎ
 
-- **済（このセッションまで）**: コア v0 / 演算子(PR #7) / 構築(PR #8) / **文字列補間(PR #10, step 2 完了)** / 本方針転換・パイプ決定・採用カタログの確定。**2026-06-13 追加決定**（本 PR）= ①jq 互換完全廃止＋dual-mode 廃止＋es-toolkit 名を正典化 ②補完・予測 A/B/C を最終ゴール（B 真実源・AI 呼出可／C fish 風対話モード） ③`groupBy` 合成語彙（`mapValues`/`orderBy`/`toPairs`・`fromPairs`）を Wave1 へ ④JSONC/JSON5 寛容入力を最終ゴール。
-- **次セッションの起点**: §5 の **(1) `=>` 誤誘導ヒント修正** → (2) explain JS ブリッジ修正 → (3) **jq-compat/dual-mode 撤去** → (4) 正典化 → 以降 §5 の順。並行で新ビジョン spec 起草。
-- **撤去/更新待ち（決定①の波及）**: `--humane` フラグ実体・README の dual-mode 節・`--help` の "jq-compatible" 表記・`docs/jq-compat.md`（SUPERSEDED）・[CLAUDE.md](../CLAUDE.md) の互換記述。**本 PR は roadmap 正本のみ更新**、コード/他 docs は §5(3)(4) の実装リレーで。
+- **済（〜2026-06-13）**: コア v0 / 演算子(PR #7) / 構築(PR #8) / **文字列補間(PR #10, step 2 完了)** / 方針転換・パイプ決定・採用カタログの確定（roadmap PR #11/#12）。
+- **済（2026-06-14 クリーンアップ・セッション ＝ §5 step 1〜4）**: バグ①② 修正・**dual-mode 撤去**（`Mode.swift` 削除・`mode` 引数除去・`--humane`/`JIG_MODE`/pragma 撤去）・**jq 互換負債の一掃**（README ×2 / CLAUDE / glossary / Package.swift / CONTRIBUTING / PR template / run.sh / homebrew / 全コメント）・**es-toolkit 正典化**（typeof/filter/sum・`canonicalBuiltinName`）。`swift build` clean、挙動は実機バイナリで検証（XCTest は full Xcode が要る＝ローカル不可・CI 任せ）。多エージェントの敵対レビューで残債 9 件を検出・全修正。**未 push（ユーザ承認待ち、branch `refactor/drop-jq-debt-canonicalize`）**。
+  - **⚠️ 2026-06-14 意味論の確定（破壊的・`破壊的変更OK` 下でユーザ承認可能・要・最終確認）**:
+    - **H2**: `.[]` を null に適用 → **常に空ストリーム**（旧 jq モード既定はエラー）。`.foo`/`.[N]` の null 伝播と一貫。非 null scalar は依然エラー（humane hint 付き）。
+    - **H1**: `//` は **常に false+null を落とす**（jq 意味論・旧既定と同じ）。旧 humane の「`//` は false を残す」は**撤去**。理由＝`??` が nullish（null のみ）を担うので、`//` と `??` を**別物として維持**（同一化すると冗長）。能力の喪失なし。
+- **次セッションの起点**: §5 **(5) Wave1 合成セット**（`groupBy`/`mapValues`/`orderBy`/`toPairs`・`fromPairs` ＋ `.[a:b]` スライス ＋ `range`）。正典化パターン（§5-4）に乗せる。以降 §5 の (6) 補完エンジン `jig complete` → … の順。並行で新ビジョン spec 起草。
+- **撤去/更新待ち（決定①の波及）= 完了**: `--humane` 実体・README dual-mode 節・`--help` の "jq-compatible"・`docs/jq-compat.md`（SUPERSEDED 化）・CLAUDE の互換記述、いずれも 2026-06-14 で処理済。
 - 正本: 方向性は本ファイル。用語は [docs/glossary.md](glossary.md)、構造/制約/原則は [CLAUDE.md](../CLAUDE.md)。`docs/jq-compat.md` は歴史的参考（SUPERSEDED）。
