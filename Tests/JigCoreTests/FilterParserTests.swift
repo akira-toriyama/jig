@@ -177,7 +177,7 @@ final class FilterParserTests: XCTestCase {
 
     func testNoInputCrashesTheParser() {
         // Mini-fuzz: every prefix of a gnarly program must error or parse,
-        // never trap. (Real fuzzing is roadmap — docs/jq-compat.md.)
+        // never trap. (Real fuzzing is roadmap — docs/roadmap.md.)
         let gnarly = ".a[-12]?.b | .c, (.d[].e) | .[0] ?? 'x' $v “q”"
         for end in gnarly.indices {
             _ = try? parseFilter(String(gnarly[..<end]))

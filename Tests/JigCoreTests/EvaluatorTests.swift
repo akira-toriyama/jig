@@ -4,7 +4,7 @@ import XCTest
 /// Generator-semantics contracts. Inputs/expectations are written as JSON
 /// text and compared compactly — effectively golden tests of
 /// parse → eval → write, the same shape a future jq-conformance harness
-/// will use (docs/jq-compat.md).
+/// will use (docs/roadmap.md).
 final class EvaluatorTests: XCTestCase {
 
     private func run(_ program: String, on json: String) throws -> [String] {
@@ -63,38 +63,22 @@ final class EvaluatorTests: XCTestCase {
         XCTAssertEqual(try run(".[]", on: #"{"z":1,"a":2}"#), ["1", "2"])
     }
 
-    func testIterateNullErrorsLoudly() throws {
-        XCTAssertThrowsError(try run(".items[]", on: #"{}"#)) { error in
-            guard let e = error as? EvalError else { return XCTFail() }
-            XCTAssertTrue(e.message.contains("cannot iterate over null"), e.message)
-        }
+    func testIterateNullIsEmptyStream() throws {
+        // A null iterates to nothing — consistent with how null already
+        // propagates through .foo / .[N] (roadmap §1). It does NOT error.
+        XCTAssertEqual(try run(".items[]", on: #"{}"#), [])
     }
 
     func testOptionalIterateSuppresses() throws {
         XCTAssertEqual(try run(".items[]?", on: #"{}"#), [])
     }
 
-    // MARK: H2 — humane mode makes null iteration the empty stream
-
-    func testHumaneIterateOverNullIsEmpty() throws {
-        let filter = try parseFilter(".items[]")
-        let input = try parseOneJSON(#"{}"#)
-        XCTAssertEqual(try evaluate(filter, on: input, mode: .humane), [])
-        // jq mode still errors.
-        XCTAssertThrowsError(try evaluate(filter, on: input, mode: .jq))
-    }
-
-    func testHumaneIterateOverScalarStillErrors() throws {
-        // H2 only relaxes null — a scalar is still a hard error in humane mode.
-        let filter = try parseFilter(".[]")
-        let input = try parseOneJSON("42")
-        XCTAssertThrowsError(try evaluate(filter, on: input, mode: .humane))
-    }
-
-    func testHumaneDoesNotChangeArrayIteration() throws {
-        let filter = try parseFilter(".[]")
-        let input = try parseOneJSON("[1,2]")
-        XCTAssertEqual(try evaluate(filter, on: input, mode: .humane).count, 2)
+    func testIterateOverNonNullScalarStillErrors() throws {
+        // Only null is relaxed — a non-null scalar is still a hard error.
+        XCTAssertThrowsError(try run(".[]", on: "42")) { error in
+            guard let e = error as? EvalError else { return XCTFail() }
+            XCTAssertTrue(e.message.contains("cannot iterate over number"), e.message)
+        }
     }
 
     func testPipeFeedsEveryOutput() throws {

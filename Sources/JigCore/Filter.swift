@@ -5,7 +5,7 @@
 //
 // Every node that can fail at runtime carries the SourceSpan of its source
 // text, so evaluator errors point at the exact spot in the program — the #1
-// jq complaint jig exists to fix (docs/jq-compat.md).
+// jq complaint jig exists to fix (docs/roadmap.md).
 
 /// Half-open byte range [start, end) into the program source.
 public struct SourceSpan: Sendable, Equatable {
@@ -47,7 +47,7 @@ public indirect enum Filter: Sendable, Equatable {
     /// An infix operator: arithmetic (`+ - * / %`), comparison
     /// (`== != < <= > >=`), or logical (`and` / `or`). Both sides are
     /// filters; arithmetic/comparison form a cartesian product of the two
-    /// output streams, logical ops short-circuit (docs/jq-compat.md step 3).
+    /// output streams, logical ops short-circuit (docs/roadmap.md step 3).
     case binary(BinOp, Filter, Filter, span: SourceSpan)
     /// Unary minus: `-.x`, `-(…)`. (A `-` directly before digits is folded
     /// into a number literal so its source text is preserved, like jq.)
@@ -79,7 +79,7 @@ public indirect enum Filter: Sendable, Equatable {
 /// One fragment of an interpolated string (`Filter.stringInterp`): a run of
 /// literal text, or an embedded filter whose output is spliced in. The `${…}`
 /// spelling is an additive ECMAScript alias for jq's `\(…)` — both parse to
-/// `.interp` (docs/jq-compat.md, "ECMAScript エルゴノミクス"). No `indirect` is
+/// `.interp` (docs/roadmap.md, "ECMAScript エルゴノミクス"). No `indirect` is
 /// needed: `Filter` is already an indirect enum (a pointer-sized value), so
 /// nesting it here through the part array is bounded.
 public enum StringPart: Sendable, Equatable {

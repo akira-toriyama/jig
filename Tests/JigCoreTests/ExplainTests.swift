@@ -3,13 +3,14 @@ import XCTest
 
 final class ExplainTests: XCTestCase {
 
-    private func explainOf(_ program: String, mode: JigMode = .jq) throws -> String {
-        try explain(parseFilter(program), source: program, mode: mode)
+    private func explainOf(_ program: String) throws -> String {
+        try explain(parseFilter(program), source: program)
     }
 
-    func testHeaderEchoesSourceAndMode() throws {
+    func testHeaderEchoesSource() throws {
         let out = try explainOf(".a | .b")
-        XCTAssertTrue(out.contains("jig explain (jq mode)"))
+        XCTAssertTrue(out.contains("jig explain"))
+        XCTAssertFalse(out.contains("mode"))  // dual-mode is gone (roadmap §5/3)
         XCTAssertTrue(out.contains("filter: .a | .b"))
     }
 
@@ -20,11 +21,10 @@ final class ExplainTests: XCTestCase {
         XCTAssertTrue(out.contains("3. take the \"name\" field"))
     }
 
-    func testHumaneIterateWordingAndNote() throws {
-        let out = try explainOf(".items[]", mode: .humane)
-        XCTAssertTrue(out.contains("humane mode"))
-        XCTAssertTrue(out.contains("null emits nothing (humane)"))
-        XCTAssertTrue(out.contains("(H2)"))
+    func testIterateWordingAndNullNote() throws {
+        let out = try explainOf(".items[]")
+        XCTAssertTrue(out.contains("null emits nothing"), out)
+        XCTAssertTrue(out.contains("iterating a null value emits nothing"), out)
     }
 
     // MARK: JavaScript analogy

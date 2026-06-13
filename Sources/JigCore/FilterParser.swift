@@ -1,6 +1,6 @@
 // Filter (jq program) lexer + recursive-descent parser.
 //
-// Design contract (docs/jq-compat.md, "diagnostics"):
+// Design contract (docs/roadmap.md, "diagnostics"):
 //   - hand-written, never crashes: any input produces a Filter or a
 //     FilterParseError (fuzzing is the eventual proof)
 //   - errors are HUMAN: position, what was found, what was expected, and a
@@ -8,7 +8,7 @@
 //     chat app, shell quoting that swallowed the quotes, …) — never
 //     bison-speak like "unexpected INVALID_CHARACTER, expecting $end"
 //
-// Grammar (v0 — the supported subset; growth roadmap in docs/jq-compat.md).
+// Grammar (v0 — the supported subset; growth roadmap in docs/roadmap.md).
 // Precedence runs loosest→tightest down the chain, mirroring jq's parser.y:
 //
 //   program  := pipe
@@ -487,7 +487,7 @@ private struct FilterParser {
             return FilterParseError(
                 message: "unexpected \"$\" in object construction",
                 span: SourceSpan(pos, pos + 1),
-                hint: "$variable keys need variables (docs/jq-compat.md roadmap step 5); for now use {name: …}, {\"name\": …}, or {(expr): …}")
+                hint: "$variable keys need variables (on the roadmap); for now use {name: …}, {\"name\": …}, or {(expr): …}")
         }
         return unexpected("in object construction — expected a key: a name, \"string\", or (expression)")
     }
@@ -554,7 +554,7 @@ private struct FilterParser {
                 // `${…}` — additive ECMAScript alias for `\(…)`. jq treats
                 // `${` as literal text, so this is the one spot where an
                 // additive form gives meaning to (rare) valid jq string text;
-                // it is documented in docs/jq-compat.md. A bare `$` not before
+                // it is documented in docs/roadmap.md. A bare `$` not before
                 // `{` stays literal (falls through to the default below).
                 flushLiteral()
                 pos += 1 // consume "{"
@@ -770,7 +770,7 @@ private struct FilterParser {
             return FilterParseError(
                 message: "unexpected \"$\" \(context)",
                 span: span,
-                hint: "$variables are not implemented yet (docs/jq-compat.md roadmap) — also check the shell didn't expand $name before jig saw it (use single quotes)")
+                hint: "$variables are not implemented yet (on the roadmap) — also check the shell didn't expand $name before jig saw it (use single quotes)")
         case UInt8(ascii: "="):
             // `=>` is the JS arrow — a near-universal reflex for JS/TS users
             // (and LLMs) reaching for `filter(u => u.active)`. jig's builtins

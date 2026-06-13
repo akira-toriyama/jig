@@ -102,7 +102,7 @@ public struct JigNumber: Sendable, Equatable {
 
     /// Numbers compare numerically; the literal is a printing concern only.
     /// (Full big-decimal comparison à la jq 1.7 is future work —
-    /// docs/jq-compat.md.)
+    /// docs/roadmap.md.)
     public static func == (lhs: JigNumber, rhs: JigNumber) -> Bool {
         lhs.double == rhs.double
     }

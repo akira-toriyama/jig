@@ -6,7 +6,7 @@
 // Every unknown name produces a located "not defined" error — never a trap.
 
 func evalCall(_ name: String, _ args: [Filter], on input: JigValue,
-              mode: JigMode, span: SourceSpan) throws -> [JigValue] {
+              span: SourceSpan) throws -> [JigValue] {
     switch (name, args.count) {
     case ("empty", 0):
         return []
@@ -27,10 +27,10 @@ func evalCall(_ name: String, _ args: [Filter], on input: JigValue,
 
     case ("map", 1):
         // jq: def map(f): [.[] | f];  — reuses iterate, so it inherits H2.
-        let elements = try evaluate(.iterate(optional: false, span: span), on: input, mode: mode)
+        let elements = try evaluate(.iterate(optional: false, span: span), on: input)
         var out: [JigValue] = []
         for e in elements {
-            out.append(contentsOf: try evaluate(args[0], on: e, mode: mode))
+            out.append(contentsOf: try evaluate(args[0], on: e))
         }
         return [.array(out)]
 
@@ -38,14 +38,14 @@ func evalCall(_ name: String, _ args: [Filter], on input: JigValue,
         // jq: def select(f): if f then . else empty end; — one input per
         // truthy output of f.
         var out: [JigValue] = []
-        for v in try evaluate(args[0], on: input, mode: mode) where truthy(v) {
+        for v in try evaluate(args[0], on: input) where truthy(v) {
             out.append(input)
         }
         return out
 
     case ("has", 1):
         var out: [JigValue] = []
-        for key in try evaluate(args[0], on: input, mode: mode) {
+        for key in try evaluate(args[0], on: input) {
             out.append(.bool(try hasKey(input, key, span)))
         }
         return out

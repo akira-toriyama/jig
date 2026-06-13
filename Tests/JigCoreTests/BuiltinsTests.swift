@@ -5,9 +5,8 @@ import XCTest
 /// mini-conformance set ahead of importing jq's own test suite.
 final class BuiltinsTests: XCTestCase {
 
-    private func run(_ program: String, on json: String,
-                     mode: JigMode = .jq) throws -> [String] {
-        try evaluate(parseFilter(program), on: parseOneJSON(json), mode: mode)
+    private func run(_ program: String, on json: String) throws -> [String] {
+        try evaluate(parseFilter(program), on: parseOneJSON(json))
             .map { writeJSON($0, style: .compact) }
     }
 

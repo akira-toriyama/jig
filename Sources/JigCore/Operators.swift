@@ -1,4 +1,4 @@
-// Infix operators — roadmap step 3 (docs/jq-compat.md): arithmetic
+// Infix operators — roadmap step 3 (docs/roadmap.md): arithmetic
 // (`+ - * / %`), comparison (`== != < <= > >=`), and logical (`and` / `or`),
 // plus unary minus. Semantics track jq 1.7/1.8 exactly (verified against the
 // reference binary); jq mode must not diverge.
@@ -45,13 +45,13 @@ func applyBinary(_ op: BinOp, _ l: JigValue, _ r: JigValue, _ span: SourceSpan) 
 /// ends `or` with `true`; otherwise the right side is evaluated and each of
 /// its outputs contributes its own truthiness.
 func evalLogical(_ op: BinOp, _ lhs: Filter, _ rhs: Filter,
-                 on input: JigValue, mode: JigMode) throws -> [JigValue] {
+                 on input: JigValue) throws -> [JigValue] {
     let isAnd = (op == .and)
     var out: [JigValue] = []
-    for l in try evaluate(lhs, on: input, mode: mode) {
+    for l in try evaluate(lhs, on: input) {
         if truthy(l) == isAnd {
             // `and` + truthy left, or `or` + falsy left → defer to the right.
-            for r in try evaluate(rhs, on: input, mode: mode) {
+            for r in try evaluate(rhs, on: input) {
                 out.append(.bool(truthy(r)))
             }
         } else {

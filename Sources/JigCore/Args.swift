@@ -6,7 +6,7 @@
 // muscle memory and existing scripts carry over. Flags may appear before or
 // after the filter, like jq. Combined short flags (-rc) are NOT supported
 // for now — jq's own support for them is inconsistent; revisit via
-// docs/jq-compat.md. Unknown flags are rejected loudly (family rule:
+// docs/roadmap.md. Unknown flags are rejected loudly (family rule:
 // no silent fallback).
 
 public struct Args: Sendable, Equatable {
@@ -19,22 +19,17 @@ public struct Args: Sendable, Equatable {
     public var rawOutput: Bool
     /// -n — don't read input; run the filter once on null.
     public var nullInput: Bool
-    /// --humane — force humane mode (highest-precedence mode selector;
-    /// see resolveMode in Mode.swift).
-    public var humane: Bool
 
     public init(filter: String,
                 files: [String] = [],
                 compactOutput: Bool = false,
                 rawOutput: Bool = false,
-                nullInput: Bool = false,
-                humane: Bool = false) {
+                nullInput: Bool = false) {
         self.filter = filter
         self.files = files
         self.compactOutput = compactOutput
         self.rawOutput = rawOutput
         self.nullInput = nullInput
-        self.humane = humane
     }
 }
 
@@ -60,7 +55,7 @@ public func parseArgs(_ argv: [String]) throws -> ArgsAction {
     // Subcommand, if present, is the FIRST token: `jig explain …` /
     // `jig check …`. These are jig-specific (jq has no subcommands); a
     // leading "." or "-flag" is never mistaken for one. Flags follow the
-    // subcommand (`jig explain --humane '.x'`).
+    // subcommand (`jig explain -c '.x'`).
     var subcommand: String?
     if let first = argv.first, first == "explain" || first == "check" {
         subcommand = first
@@ -72,7 +67,6 @@ public func parseArgs(_ argv: [String]) throws -> ArgsAction {
     var compact = false
     var raw = false
     var nullInput = false
-    var humane = false
     var flagsDone = false
 
     var i = 0
@@ -96,8 +90,6 @@ public func parseArgs(_ argv: [String]) throws -> ArgsAction {
             raw = true
         case "-n", "--null-input":
             nullInput = true
-        case "--humane":
-            humane = true
         default:
             throw ArgsParseError.unknownFlag(a)
         }
@@ -108,8 +100,7 @@ public func parseArgs(_ argv: [String]) throws -> ArgsAction {
                     files: files,
                     compactOutput: compact,
                     rawOutput: raw,
-                    nullInput: nullInput,
-                    humane: humane)
+                    nullInput: nullInput)
     switch subcommand {
     case "explain": return .explain(args)
     case "check": return .check(args)

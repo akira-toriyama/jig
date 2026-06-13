@@ -2,15 +2,14 @@ import XCTest
 @testable import JigCore
 
 /// Arithmetic (`+ - * / %`), comparison (`== != < <= > >=`), logical
-/// (`and` / `or`), and unary minus — roadmap step 3 (docs/jq-compat.md).
-/// Every expectation here was confirmed against jq 1.8.1 so jq mode does not
-/// diverge. Object/array *construction* literals aren't implemented yet
-/// (step 2 remainder), so collection operands come from the input JSON.
+/// (`and` / `or`), and unary minus — roadmap step 3. Golden checks against
+/// jig's own spec; the expectations were originally cross-checked against
+/// jq 1.8.1. Object/array *construction* literals predate this file's operands,
+/// so collection operands come from the input JSON.
 final class OperatorsTests: XCTestCase {
 
-    private func run(_ program: String, on json: String = "null",
-                     mode: JigMode = .jq) throws -> [String] {
-        try evaluate(parseFilter(program), on: parseOneJSON(json), mode: mode)
+    private func run(_ program: String, on json: String = "null") throws -> [String] {
+        try evaluate(parseFilter(program), on: parseOneJSON(json))
             .map { writeJSON($0, style: .compact) }
     }
 

@@ -1,28 +1,26 @@
-// `jig explain` — describe in plain language what a filter does, using the
-// same AST + mode the evaluator runs on. This is jig's flagship "humane"
-// surface: a direct answer to jq's famously terse mental model
-// (docs/jq-compat.md pain points #15 / #20). Pure (returns a String);
-// JigApp prints it.
+// `jig explain` — describe in plain language what a filter does, walking the
+// same AST the evaluator runs on. This is jig's flagship "humane" surface: a
+// direct answer to the famously terse mental model of stream filters. Pure
+// (returns a String); JigApp prints it.
 
 /// Render a one-line explanation block for `filter`. `source` is the program
-/// as the user typed it (echoed in the header); `mode` tailors the wording
-/// of behaviors that differ between jq and humane mode.
-public func explain(_ filter: Filter, source: String, mode: JigMode) -> String {
+/// as the user typed it (echoed in the header).
+public func explain(_ filter: Filter, source: String) -> String {
     var lines: [String] = []
-    lines.append("jig explain (\(mode.label))")
+    lines.append("jig explain")
     lines.append("")
     lines.append("  filter: \(source)")
     lines.append("")
     let steps = flattenPipe(filter)
     for (i, step) in steps.enumerated() {
-        lines.append("  \(i + 1). \(phrase(step, mode: mode))")
+        lines.append("  \(i + 1). \(phrase(step))")
     }
     lines.append("")
     lines.append("  ≈ JS: \(jsEquivalent(filter))")
     lines.append("")
     lines.append("Model: one input value → a stream of output values (generator semantics).")
-    if mode == .humane && containsIterate(filter) {
-        lines.append("Humane: iterating a null value emits nothing instead of erroring (H2).")
+    if containsIterate(filter) {
+        lines.append("Note: iterating a null value emits nothing (a non-null scalar errors).")
     }
     return lines.joined(separator: "\n")
 }
@@ -67,7 +65,7 @@ private func jsChain(_ stages: [Filter], subject: String) -> String {
             // A literal ignores its input — it replaces the running subject.
             expr = writeJSON(v, style: .compact)
         case .alternative(let a, let b, _):
-            // jq `//` ≈ JS falsy-`||`; humane `//` and `??` ≈ JS nullish-`??`.
+            // `//` ≈ JS falsy-`||` (drops false+null); `??` ≈ JS nullish-`??`.
             return "(\(jsChain(flattenPipe(a), subject: expr)) || \(jsChain(flattenPipe(b), subject: expr)))"
         case .nullish(let a, let b, _):
             return "(\(jsChain(flattenPipe(a), subject: expr)) ?? \(jsChain(flattenPipe(b), subject: expr)))"
@@ -274,7 +272,7 @@ private func containsIterate(_ filter: Filter) -> Bool {
     }
 }
 
-private func phrase(_ filter: Filter, mode: JigMode) -> String {
+private func phrase(_ filter: Filter) -> String {
     switch filter {
     case .identity:
         return "pass the value through unchanged (.)"
@@ -293,10 +291,8 @@ private func phrase(_ filter: Filter, mode: JigMode) -> String {
         var base = "iterate: emit each array element / object value"
         if optional {
             base += " — skip inputs that aren't iterable (?)"
-        } else if mode == .humane {
-            base += " — null emits nothing (humane); a scalar errors"
         } else {
-            base += " — error if the input isn't an array or object"
+            base += " — null emits nothing; a non-null scalar errors"
         }
         return base
     case .comma(let a, let b):
@@ -305,7 +301,7 @@ private func phrase(_ filter: Filter, mode: JigMode) -> String {
         return "produce the constant \(writeJSON(v, style: .compact))"
     case .alternative(let a, let b, _):
         return "alternative (//): use (\(render(a))); if it yields no usable value "
-            + "(\(mode == .humane ? "null/empty" : "false/null/empty")), fall back to (\(render(b)))"
+            + "(false/null/empty), fall back to (\(render(b)))"
     case .nullish(let a, let b, _):
         return "nullish (??): use (\(render(a))); only if that is null/empty, fall back to (\(render(b)))"
     case .call(let name, let args, _):
