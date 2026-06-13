@@ -27,7 +27,7 @@ func evalCall(_ name: String, _ args: [Filter], on input: JigValue,
         return [try addOf(input, span)]
 
     case ("map", 1):
-        // jq: def map(f): [.[] | f];  — reuses iterate, so it inherits H2.
+        // jq: def map(f): [.[] | f];  — reuses iterate (so map over null is []).
         let elements = try evaluate(.iterate(optional: false, span: span), on: input)
         var out: [JigValue] = []
         for e in elements {

@@ -34,12 +34,11 @@ public indirect enum Filter: Sendable, Equatable {
     /// A constant scalar: `42`, `"text"`, `true`, `false`, `null`. Ignores
     /// its input and emits the value.
     case literal(JigValue)
-    /// `a // b` — jq's alternative: emits a's outputs that are neither false
-    /// nor null; if there are none, emits b's. In humane mode it drops only
-    /// null (H1), matching `??`.
+    /// `a // b` — alternative: emits a's outputs that are neither false nor
+    /// null; if there are none, emits b's. (For null-only fallback use `??`.)
     case alternative(Filter, Filter, span: SourceSpan)
-    /// `a ?? b` — nullish coalescing: emits a's non-null outputs; if there
-    /// are none, emits b's. Same in both modes (additive; jq rejects `??`).
+    /// `a ?? b` — nullish coalescing: emits a's non-null outputs (keeps
+    /// false); if there are none, emits b's. The ECMAScript spelling jq lacks.
     case nullish(Filter, Filter, span: SourceSpan)
     /// A builtin/function call: `length`, `map(f)`, `has(k)`. Arguments are
     /// `;`-separated filters.
