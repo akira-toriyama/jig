@@ -772,10 +772,21 @@ private struct FilterParser {
                 span: span,
                 hint: "$variables are not implemented yet (docs/jq-compat.md roadmap) — also check the shell didn't expand $name before jig saw it (use single quotes)")
         case UInt8(ascii: "="):
+            // `=>` is the JS arrow — a near-universal reflex for JS/TS users
+            // (and LLMs) reaching for `filter(u => u.active)`. jig's builtins
+            // take a BARE filter (the element is the implicit `.`), so redirect
+            // there instead of mis-hinting toward `==`.
+            if peekAhead(1) == UInt8(ascii: ">") {
+                return FilterParseError(
+                    message: "unexpected \"=>\" \(context)",
+                    span: SourceSpan(pos, pos + 2),
+                    hint: "jig has no => arrow — builtins take a bare filter: filter(.active) "
+                        + "(the element is the implicit .); arrows and variables are on the roadmap")
+            }
             return FilterParseError(
                 message: "unexpected \"=\" \(context)",
                 span: span,
-                hint: "for equality use == (assignment = / |= / += is on the roadmap, docs/jq-compat.md step 5)")
+                hint: "for equality use == (assignment / path-update is on the roadmap)")
         default:
             let display: String
             if b >= 0x21 && b < 0x7F {
