@@ -34,6 +34,38 @@
 - 既存の差別化＝**humane 診断**は最大の武器として強化する。
 - number literal 保存（`1e10` を保つ）は jq の dtoa 正規化との乖離だが、**“数字が壊れない機能”として残す**（バグでなく仕様。dtoa バイト一致 PR は不要化）。
 
+### 入力フォーマット — 寛容な入力（JSONC / JSON5）｜**最終ゴール・優先度低**
+
+最終ゴールに **JSONC / JSON5 入力の受理**を加える（near ROI 順 §5 には割り込ませない、当面後回し）。
+根拠は Unix の **「入力に寛容・出力に厳格」**（Postel 則／§7-1 の普遍性ヒューリスティック）—
+現実の JSON（`tsconfig.json` / `devcontainer.json` / VS Code `settings.json` …）はコメントや
+末尾カンマを含み、「**JSON を CLI から操作しやすく**」を名乗る以上それらを黙って読めるべき。
+`comment-json` / JSON5 を当然に扱う npm/JS エコシステム親和とも一致する。
+
+**確定方針**:
+
+- **入力のみ拡張、出力は厳格 JSON のまま**。正典は一つ＝「一つの明白な道」を崩さない。
+  strict JSON は両者の部分集合なので、寛容化で既存の妥当入力が壊れることはない（非破壊）。
+- **段階と既定**: ① **JSONC**（`//` `/* */` コメント＋末尾カンマ）＝**既定で寛容に受理**
+  （無害＝strict JSON の superset）。② **JSON5**（無引用キー・単引用符・hex・`Infinity`/`NaN`
+  等のフル superset）＝**`--json5` opt-in**（緩いトークンは typo を隠すため既定にしない）。
+  近接ゴールは JSONC、JSON5 はストレッチ。
+- **`Infinity` / `NaN`（JSON5）の出力**: 入力では受理するが、**出力時に humane エラー**
+  （JSON に表現不可。silent な `null`/`NaN` 破壊はしない）。number-literal 保存方針と一貫。
+- **実装の置き場所**: 寛容 JSON リーダは **sill（family 共有 pure module）側**に持つ。
+  chord の TOML を sill へ寄せた Phase 1.6 と同じ「四つの自前パーサを一つへ」発想を JSON
+  入力系にも適用（perch / wand / facet / jig で将来共有化）。
+
+<details>
+<summary>実装時に詰める細部</summary>
+
+- **stream / NDJSON 分割（jq generator）とコメント・空白の相互作用** を要検証。
+- **診断との整合**: 寛容に受けた箇所（コメント／末尾カンマ除去後）でもエラーの caret が
+  **元バイト位置**を指せるよう span 写像を保つ。
+- 厳格モードの明示フラグ（`--json-strict` で寛容受理を切る）の要否は実装時に決める。
+
+</details>
+
 ---
 
 ## 2. パイプ & 言語モデル（確定）
@@ -171,6 +203,7 @@ jig の新規性はパイプでなくここに全振りする。
 6. **`jig lint`**（or explain 拡張）: top-level `,` fan-out 注記
 7. （後）メソッド鎖を**可逆 parse-sugar** で（`parseSuffix` を拡張し `.ident(args)` → `pipe(receiver, call)`。`.a.b`→pipe と同じ仕組み）＋ `jig fmt`。**パースできるまで docs に載せない**
 8. （別 surface）`--js` アローモード（JavaScriptCore を意味論オラクルに）を隔離 opt-in。正典の「一つの道」に混ぜない
+9. （**最終ゴール・優先度低／near ROI 順に割り込ませない**）**寛容入力**: JSONC を既定受理 → `--json5` opt-in。入力リーダは sill 共有 pure module 側、出力は厳格 JSON のまま。方針は §1「入力フォーマット」。
 
 並行: **新ビジョン spec 起草**（このロードマップを土台に、文法=Unix純パイプ / 語彙=採用カタログ / 診断 / デバッグを spec 化）。継続課題: パーサ/評価器の深さ上限（深い再帰で SIGSEGV、docs roadmap「深さ上限 + fuzzing」）。
 
