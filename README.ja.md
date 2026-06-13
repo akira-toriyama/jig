@@ -25,10 +25,11 @@ jig: error: cannot iterate over null (null) (input #1)
 JSON に対してやることそのもの。Swift ツール家系
 [atelier](https://github.com/akira-toriyama/atelier) の一員。
 
-> ⚠️ **開発初期 (WIP)。** 現在は jq 言語の小さなコア部分のみ実装
-> （下の *Usage* 参照）。基盤 — stream 処理、診断、number literal 保存、
-> jq 互換 exit code — は完成済みで、言語表面を完全互換へ向けて拡張中
-> （[ロードマップ](docs/jq-compat.md)）。
+> ⚠️ **開発初期 (WIP) — 方針転換 (2026-06-13)。** jig は **人に優しい JSON
+> 操作 CLI** へ向かう: jq 由来の文法（Unix 純な `|` パイプ）+ lodash/es-toolkit
+> 風の builtin 語彙 + humane 診断。jq の**完全バイト互換は追わない**（それは
+> jq/gojq/jaq の仕事）。現状は小さな jq ライクのコアのみ実装（下の *Usage*）。
+> 向かう先と理由は **[ロードマップ](docs/roadmap.md)**。
 
 ## なぜもう一つの jq?
 

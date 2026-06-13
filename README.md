@@ -25,10 +25,12 @@ A *jig* is the workshop fixture that holds the stock and guides the cutting
 tool — which is what a query program does to JSON. Part of the
 [atelier](https://github.com/akira-toriyama/atelier) family of Swift tools.
 
-> ⚠️ **Early WIP.** jig currently implements a small core of the jq language
-> (see *Status*). The foundation — streams, diagnostics, number-literal
-> preservation, jq exit codes — is in place; the language surface is growing
-> toward full compatibility ([roadmap](docs/jq-compat.md)).
+> ⚠️ **Early WIP — direction shift (2026-06-13).** jig is becoming **the
+> ergonomic JSON CLI**: jq-inspired syntax (a Unix-pure `|` pipe), a
+> lodash/es-toolkit-flavored builtin vocabulary, and humane diagnostics. It no
+> longer chases byte-for-byte jq compatibility (that's jq's / gojq's / jaq's
+> job). What's implemented today is a small jq-like core (see *Status*); where
+> jig is heading and why is in the **[roadmap](docs/roadmap.md)**.
 
 ## Why another jq?
 
