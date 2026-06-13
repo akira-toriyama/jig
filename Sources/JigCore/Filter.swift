@@ -64,6 +64,27 @@ public indirect enum Filter: Sendable, Equatable {
     /// the key varies slower than the value. Keys must evaluate to strings;
     /// duplicate keys keep the first position with the last value.
     case objectConstruct([ObjectEntry])
+    /// `"a\(f)b"` — string INTERPOLATION: an ordered list of literal text
+    /// fragments and embedded filters. Each filter's outputs are coerced to
+    /// string (a string splices in verbatim, every other value as its compact
+    /// JSON form — jq's `tostring` rule) and the fragments concatenate. Several
+    /// interpolations make a cartesian product in which the RIGHTMOST varies
+    /// SLOWEST, matching jq's left-folded concatenation (so `"\(1,2)-\(3,4)"`
+    /// emits 1-3, 2-3, 1-4, 2-4); an empty embedded stream makes the whole
+    /// product empty. A string with no interpolation stays a plain `.literal`,
+    /// so this node only exists when there is at least one `\(…)` / `${…}`.
+    case stringInterp([StringPart])
+}
+
+/// One fragment of an interpolated string (`Filter.stringInterp`): a run of
+/// literal text, or an embedded filter whose output is spliced in. The `${…}`
+/// spelling is an additive ECMAScript alias for jq's `\(…)` — both parse to
+/// `.interp` (docs/jq-compat.md, "ECMAScript エルゴノミクス"). No `indirect` is
+/// needed: `Filter` is already an indirect enum (a pointer-sized value), so
+/// nesting it here through the part array is bounded.
+public enum StringPart: Sendable, Equatable {
+    case literal(String)
+    case interp(Filter)
 }
 
 /// One `key: value` pair in `{…}` object construction. Both are filters run

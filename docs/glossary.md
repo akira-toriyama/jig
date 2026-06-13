@@ -123,6 +123,15 @@ array `[f]` は f の value stream を 1 つの array に **materialize** する
 - 所在: `Filter.objectConstruct` / `.arrayConstruct` — [`Sources/JigCore/Filter.swift`](../Sources/JigCore/Filter.swift)、`buildObjects` — [`Sources/JigCore/Evaluator.swift`](../Sources/JigCore/Evaluator.swift)
 - **Don't call it:** object / array literal（値リテラルではない — 入力に対し評価される filter）, comprehension
 
+### string interpolation
+`"a\(f)b"` — literal 断片に、埋め込み filter `f`（full pipe）の出力を
+**coerce**（jq の `tostring`: string はそのまま、他は compact JSON）して
+差し込む構文。複数補間は **最右が最も外側** のカルテシアン積、`\(empty)` は
+全体を空にする。`${f}` は同義の **additive な ECMAScript エイリアス**
+（同じ `StringPart` 列にパースされる）。補間の無い `"…"` は素の `literal`。
+- 所在: `Filter.stringInterp` / `StringPart` — [`Sources/JigCore/Filter.swift`](../Sources/JigCore/Filter.swift)、`interpolate` — [`Sources/JigCore/Evaluator.swift`](../Sources/JigCore/Evaluator.swift)
+- **Don't call it:** template string（JS 等価の説明では template literal と呼ぶが、jig の正規名は string interpolation）, format string（`@base64` 等の `@fmt "…"` は別物 — roadmap step 6）
+
 ---
 
 ## データ model
