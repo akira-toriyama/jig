@@ -138,7 +138,50 @@ public func evaluate(_ filter: Filter, on input: JigValue, mode: JigMode = .jq) 
 
     case .objectConstruct(let entries):
         return try buildObjects(entries, on: input, mode: mode)
+
+    case .stringInterp(let parts):
+        return try interpolate(parts, on: input, mode: mode)
     }
+}
+
+/// String interpolation `"a\(f)b"`: concatenate the literal fragments with each
+/// embedded filter's coerced outputs. Several interpolations form a cartesian
+/// product where the RIGHTMOST varies SLOWEST — jq builds the string by folding
+/// concatenation left-to-right, and jq's `+` makes the right operand the outer
+/// loop, so a freshly-added (more-rightward) interpolation cycles slowest. We
+/// fold the same way: an accumulator of partial strings, each new value placed
+/// on the OUTSIDE of the existing ones. An embedded stream that is empty (e.g.
+/// `\(empty)`) collapses the accumulator to nothing, so the whole string emits
+/// no output — exactly jq.
+private func interpolate(_ parts: [StringPart], on input: JigValue,
+                         mode: JigMode) throws -> [JigValue] {
+    var acc: [String] = [""]
+    for part in parts {
+        switch part {
+        case .literal(let text):
+            for i in acc.indices { acc[i] += text }
+        case .interp(let f):
+            let outs = try evaluate(f, on: input, mode: mode)
+            var next: [String] = []
+            next.reserveCapacity(outs.count * acc.count)
+            for v in outs {              // new interpolation — outer (slowest)
+                let s = interpCoerce(v)
+                for a in acc { next.append(a + s) }   // existing — inner
+            }
+            acc = next
+        }
+    }
+    return acc.map { .string($0) }
+}
+
+/// jq's interpolation coercion (the `tostring` rule): a string splices in
+/// verbatim (no surrounding quotes); every other value splices in as its
+/// compact JSON encoding. Number-literal preservation rides along — writeJSON
+/// keeps an untouched number's source text — so `\(.x)` on an input `1.0`
+/// yields "1.0", matching jq.
+private func interpCoerce(_ v: JigValue) -> String {
+    if case .string(let s) = v { return s }
+    return writeJSON(v, style: .compact)
 }
 
 /// Object construction `{…}`: each entry's key and value run on the same

@@ -104,6 +104,18 @@ private func jsChain(_ stages: [Filter], subject: String) -> String {
             // (`x => ({…})`, the common `map({…})` shape) a bare `{…}` would be
             // parsed as a block, not an object — `(…)` makes it valid JS anywhere.
             expr = body.isEmpty ? "({})" : "({ \(body) })"
+        case .stringInterp(let parts):
+            // jq's `\(…)` interpolation ≈ a JS template literal — the docs'
+            // chosen analogy for the ECMAScript `${…}` alias. Each embedded
+            // filter runs on the current subject.
+            var s = "`"
+            for part in parts {
+                switch part {
+                case .literal(let lit): s += jsTemplateEscape(lit)
+                case .interp(let f): s += "${\(jsChain(flattenPipe(f), subject: expr))}"
+                }
+            }
+            expr = s + "`"
         case .pipe:
             break  // already flattened
         }
@@ -125,6 +137,25 @@ private func flattenComma(_ filter: Filter) -> [Filter] {
 /// string (`{ a: … }` vs `{ "a b": … }`).
 private func jsKey(_ s: String) -> String {
     isBarewordKey(s) ? s : writeJSON(.string(s), style: .compact)
+}
+
+/// Escape a literal fragment for placement inside a JS backtick template:
+/// a backslash, a backtick, and the substitution opener `${` would otherwise
+/// be special. Foundation-free (no `replacingOccurrences`) so JigCore stays
+/// importable under the static Linux SDK.
+private func jsTemplateEscape(_ s: String) -> String {
+    var out = ""
+    let scalars = Array(s.unicodeScalars)
+    for (i, c) in scalars.enumerated() {
+        switch c {
+        case "\\": out += "\\\\"
+        case "`": out += "\\`"
+        // Only `${` starts a substitution; a lone `$` is literal.
+        case "$" where i + 1 < scalars.count && scalars[i + 1] == "{": out += "\\$"
+        default: out.unicodeScalars.append(c)
+        }
+    }
+    return out
 }
 
 /// True when `s` is a `[A-Za-z_][A-Za-z0-9_]*` identifier — safe to print as a
@@ -198,6 +229,11 @@ private func containsIterate(_ filter: Filter) -> Bool {
         return inner.map(containsIterate) ?? false
     case .objectConstruct(let entries):
         return entries.contains { containsIterate($0.key) || containsIterate($0.value) }
+    case .stringInterp(let parts):
+        return parts.contains {
+            if case .interp(let f) = $0 { return containsIterate(f) }
+            return false
+        }
     default:
         return false
     }
@@ -262,6 +298,8 @@ private func phrase(_ filter: Filter, mode: JigMode) -> String {
     case .objectConstruct(let entries):
         let n = entries.count
         return "build an object (\(n) \(n == 1 ? "entry" : "entries")): \(render(filter))"
+    case .stringInterp:
+        return "build a string by interpolation: \(render(filter))"
     case .pipe:
         // Unreached after flattenPipe; render defensively.
         return render(filter)
@@ -303,6 +341,21 @@ public func render(_ filter: Filter) -> String {
         return inner.map { "[\(render($0))]" } ?? "[]"
     case .objectConstruct(let entries):
         return "{" + entries.map(renderObjectEntry).joined(separator: ", ") + "}"
+    case .stringInterp(let parts):
+        // Re-emit the `"…\(f)…"` source. Literal fragments are escaped via the
+        // canonical string writer (then de-quoted) so the text re-parses to the
+        // same node; `${…}` is normalized to the `\(…)` spelling (same tree).
+        var s = "\""
+        for part in parts {
+            switch part {
+            case .literal(let lit):
+                let quoted = writeJSON(.string(lit), style: .compact)
+                s += String(quoted.dropFirst().dropLast())
+            case .interp(let f):
+                s += "\\(\(render(f)))"
+            }
+        }
+        return s + "\""
     }
 }
 
@@ -335,7 +388,9 @@ private func renderObjectEntry(_ e: ObjectEntry) -> String {
 private func renderAtom(_ filter: Filter) -> String {
     switch filter {
     case .identity, .field, .index, .iterate, .literal, .call,
-         .arrayConstruct, .objectConstruct:
+         .arrayConstruct, .objectConstruct, .stringInterp:
+        // A `"…"` (interpolated or not) is self-delimiting — an atom that needs
+        // no parentheses, like a literal.
         return render(filter)
     case .pipe, .comma, .alternative, .nullish, .binary, .neg:
         return "(\(render(filter)))"

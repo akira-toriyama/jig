@@ -91,6 +91,11 @@ $ jig -c 'map(.shipped // "pending")' sample/bar.json
 $ jig -c 'map(.shipped ?? "pending")' sample/bar.json
 ["pending",true,false]
 
+$ jig -r '.maintainers[] | "\(.name) → \(.commits) commits"' sample/foo.json
+ann → 128 commits
+bob → 42 commits
+cy → 7 commits
+
 $ jig explain '.maintainers[] | .name'        # plain-language + JS analogy
   …
   ≈ JS: input.maintainers.map(x => x.name)
@@ -101,7 +106,8 @@ $ jig explain '.maintainers[] | .name'        # plain-language + JS analogy
 `.` `.foo` `.foo?` `.[0]` `.[-1]` `.[]` `.[]?` `|` `,` `( … )` `# comments`,
 scalar literals (`42` `"s"` `true` `false` `null`), object / array construction
 (`{a: .b}`, `{user}` shorthand, `{(.k): .v}` computed keys, `[.x, .y]`),
-`a // b`, `a ?? b`,
+string interpolation `"a\(.x)b"` (with the additive ECMAScript spelling
+`"a${.x}b"`), `a // b`, `a ?? b`,
 arithmetic `+ - * / %` (incl. `"s"*n`, `arr-arr`, `obj+obj` merge / `obj*obj`
 deep-merge, `str/str` split), comparison `== != < <= > >=` (jq's cross-type
 total order), logical `and` / `or`, unary minus `-x`, and builtins

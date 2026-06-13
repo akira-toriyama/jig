@@ -202,6 +202,8 @@ enum JigApp {
           42 "s" true null literals
           {a: .b}  [.x]    construct objects / arrays ({user} shorthand,
                              {(.k): .v} computed key, [.[]|f] collect)
+          "a\\(f)b"        string interpolation (f's output spliced in;
+                             "a${f}b" is the same, ECMAScript spelling)
           a // b           alternative (b unless a is truthy)
           a ?? b           nullish (b only if a is null/empty)   [ECMAScript]
           a+b a-b a*b      arithmetic + - * / %  (also "s"*n, arr-arr,

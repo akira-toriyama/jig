@@ -89,6 +89,11 @@ $ jig -c 'map(.shipped // "pending")' sample/bar.json
 $ jig -c 'map(.shipped ?? "pending")' sample/bar.json
 ["pending",true,false]
 
+$ jig -r '.maintainers[] | "\(.name) → \(.commits) commits"' sample/foo.json
+ann → 128 commits
+bob → 42 commits
+cy → 7 commits
+
 $ jig explain '.maintainers[] | .name'        # 平易な解説 + JS 等価
   …
   ≈ JS: input.maintainers.map(x => x.name)
@@ -99,6 +104,7 @@ $ jig explain '.maintainers[] | .name'        # 平易な解説 + JS 等価
 `.` `.foo` `.foo?` `.[0]` `.[-1]` `.[]` `.[]?` `|` `,` `( … )` `# コメント`、
 scalar リテラル (`42` `"s"` `true` `false` `null`)、オブジェクト / 配列構築
 (`{a: .b}`、短縮形 `{user}`、計算キー `{(.k): .v}`、`[.x, .y]`)、
+文字列補間 `"a\(.x)b"`（additive な ECMAScript 表記 `"a${.x}b"` も可）、
 `a // b`、`a ?? b`、算術 `+ - * / %`（`"s"*n`・`arr-arr`・`obj+obj` マージ /
 `obj*obj` ディープマージ・`str/str` split を含む）、比較 `== != < <= > >=`
 （jq のクロス型全順序）、論理 `and` / `or`、単項マイナス `-x`、

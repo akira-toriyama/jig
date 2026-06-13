@@ -134,8 +134,16 @@ final class FilterParserTests: XCTestCase {
             try parseFilter(".a, .b // .c") else { return XCTFail() }
     }
 
-    func testStringInterpolationIsAFriendlyError() {
-        XCTAssertThrowsError(try parseFilter(#""hi \(.x)""#)) { error in
+    func testStringInterpolationParsesToANode() throws {
+        // Interpolation is implemented (roadmap step 2 complete); the old
+        // "not implemented yet" error is gone. Full behavior lives in
+        // InterpolationTests; here we just confirm `\(…)` now parses.
+        guard case .stringInterp = try parseFilter(#""hi \(.x)""#) else {
+            return XCTFail("\(try parseFilter(#""hi \(.x)""#))")
+        }
+        // An unterminated interpolation still yields a friendly, span-carrying
+        // error (never a bison-speak crash).
+        XCTAssertThrowsError(try parseFilter(#""hi \(.x""#)) { error in
             guard let e = error as? FilterParseError else { return XCTFail() }
             XCTAssertTrue(e.message.contains("interpolation"), e.message)
         }

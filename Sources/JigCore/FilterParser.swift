@@ -33,6 +33,9 @@
 //   objval   := alt ( "|" alt )*               # comma-free: "," separates pairs (jq)
 //   suffix   := "." IDENT "?"?                # .foo.bar chains
 //            |  "[" INT? "]" "?"?             # .[0] index / .[] iterate
+//   STRING   := '"' ( CHAR | ESC | "\(" pipe ")" | "${" pipe "}" )* '"'
+//                                              # \(…) interpolation; ${…} is an
+//                                              # additive ECMAScript alias for it
 
 public struct FilterParseError: Error, Equatable {
     public let message: String
@@ -300,7 +303,7 @@ private struct FilterParser {
             pos += 1
             return inner
         case UInt8(ascii: "\""):
-            return .literal(.string(try parseStringLiteral()))
+            return try parseStringLiteral()
         case UInt8(ascii: "["):
             return try parseArrayConstruct()
         case UInt8(ascii: "{"):
@@ -416,10 +419,19 @@ private struct FilterParser {
             try expectColon(after: "a computed (…) key")
             return ObjectEntry(key: keyExpr, value: try parseObjectValue(), keySpan: keySpan)
         }
-        // String-literal key (may be shorthand): {"a b"} ≡ {"a b": .["a b"]}.
+        // String key. A plain literal key keeps the shorthand form
+        // ({"a b"} ≡ {"a b": .["a b"]}); an INTERPOLATED key ({"\(.n)": …}) is
+        // a computed key, so — like a (expr) key — it requires an explicit
+        // value. (The shorthand would need a `.[interpolated]` value node,
+        // which jig has no representation for yet; roadmap step 5.)
         if peek() == UInt8(ascii: "\"") {
-            let s = try parseStringLiteral()
-            return try objectEntryTail(key: s, keySpan: SourceSpan(keyStart, pos))
+            let keyFilter = try parseStringLiteral()
+            let keySpan = SourceSpan(keyStart, pos)
+            if case .literal(.string(let s)) = keyFilter {
+                return try objectEntryTail(key: s, keySpan: keySpan)
+            }
+            try expectColon(after: "an interpolated string key")
+            return ObjectEntry(key: keyFilter, value: try parseObjectValue(), keySpan: keySpan)
         }
         // Bareword / keyword key (may be shorthand). Reserved words
         // (true/false/null/and/if/…) are plain string keys here, matching jq.
@@ -480,10 +492,24 @@ private struct FilterParser {
         return unexpected("in object construction — expected a key: a name, \"string\", or (expression)")
     }
 
-    private mutating func parseStringLiteral() throws -> String {
+    /// Parse a `"…"` string. The common case (no interpolation) returns a
+    /// `.literal(.string)`; a string containing `\(…)` — or its additive
+    /// ECMAScript alias `${…}` — returns a `.stringInterp` whose parts are the
+    /// literal fragments and the embedded full-pipe filters, in source order.
+    /// The embedded filter is a complete `parsePipe`, so `"\(.x | length)"`
+    /// and nested strings `"\("inner \(.x)")"` parse naturally.
+    private mutating func parseStringLiteral() throws -> Filter {
         let openQuote = pos
         pos += 1 // opening "
+        var parts: [StringPart] = []
         var scalars = String.UnicodeScalarView()
+        // Push the accumulated literal run as a fragment (if any), then reset.
+        func flushLiteral() {
+            if !scalars.isEmpty {
+                parts.append(.literal(String(scalars)))
+                scalars = String.UnicodeScalarView()
+            }
+        }
         while true {
             guard let b = peek() else {
                 throw FilterParseError(message: "unterminated string literal",
@@ -492,17 +518,22 @@ private struct FilterParser {
             pos += 1
             switch b {
             case UInt8(ascii: "\""):
-                return String(scalars)
+                // No interpolation seen → a plain string literal (the hot path,
+                // and what object-key shorthand / render rely on detecting).
+                if parts.isEmpty { return .literal(.string(String(scalars))) }
+                flushLiteral()
+                return .stringInterp(parts)
             case UInt8(ascii: "\\"):
                 guard let e = peek() else {
                     throw FilterParseError(message: "unterminated escape in string",
                                            span: SourceSpan(pos - 1, pos))
                 }
                 if e == UInt8(ascii: "(") {
-                    throw FilterParseError(
-                        message: "string interpolation \\(…) is not implemented yet",
-                        span: SourceSpan(pos - 1, pos + 1),
-                        hint: "roadmap (docs/jq-compat.md step 2); for now build strings without \\(…)")
+                    // `\(…)` interpolation: a full pipe up to the matching ")".
+                    flushLiteral()
+                    pos += 1 // consume "("
+                    parts.append(.interp(try parseInterpolation(close: ")", form: "\\( … )")))
+                    continue
                 }
                 pos += 1
                 switch e {
@@ -519,6 +550,15 @@ private struct FilterParser {
                         message: "invalid escape \"\\\(Character(UnicodeScalar(e)))\" in string",
                         span: SourceSpan(pos - 2, pos))
                 }
+            case UInt8(ascii: "$") where peek() == UInt8(ascii: "{"):
+                // `${…}` — additive ECMAScript alias for `\(…)`. jq treats
+                // `${` as literal text, so this is the one spot where an
+                // additive form gives meaning to (rare) valid jq string text;
+                // it is documented in docs/jq-compat.md. A bare `$` not before
+                // `{` stays literal (falls through to the default below).
+                flushLiteral()
+                pos += 1 // consume "{"
+                parts.append(.interp(try parseInterpolation(close: "}", form: "${ … }")))
             default:
                 if b < 0x80 {
                     scalars.append(UnicodeScalar(b))
@@ -536,6 +576,19 @@ private struct FilterParser {
                 }
             }
         }
+    }
+
+    /// The body of one interpolation — a full pipe expression up to its closing
+    /// delimiter (`)` for `\(…)`, `}` for `${…}`). The opening `(` / `{` is
+    /// already consumed. `form` names the spelling for the diagnostic.
+    private mutating func parseInterpolation(close: Character, form: String) throws -> Filter {
+        let f = try parsePipe()
+        skipWhitespace()
+        guard peek() == close.asciiValue else {
+            throw unexpected("inside \(form) string interpolation — expected \"\(close)\"")
+        }
+        pos += 1 // consume the closing delimiter
+        return f
     }
 
     private mutating func parseNumberLiteral() throws -> JigNumber {
