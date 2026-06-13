@@ -52,6 +52,35 @@ public indirect enum Filter: Sendable, Equatable {
     /// Unary minus: `-.x`, `-(…)`. (A `-` directly before digits is folded
     /// into a number literal so its source text is preserved, like jq.)
     case neg(Filter, span: SourceSpan)
+    /// `[ f ]` / `[]` — array CONSTRUCTION: collect every output of `f` into
+    /// one array value (an absent filter → the empty array). The lone place a
+    /// stream becomes an array; distinct from the `.[…]` index/iterate suffix
+    /// (`.index` / `.iterate`), which only attaches to a preceding term.
+    case arrayConstruct(Filter?)
+    /// `{ k: v, … }` — object CONSTRUCTION. Each entry's key and value filters
+    /// run on the same input; several outputs form a cartesian product of
+    /// objects, ordered like jq's `k1 as $k1 | v1 as $v1 | k2 as $k2 | …`
+    /// desugaring — entries vary left-slowest→right-fastest, and within a pair
+    /// the key varies slower than the value. Keys must evaluate to strings;
+    /// duplicate keys keep the first position with the last value.
+    case objectConstruct([ObjectEntry])
+}
+
+/// One `key: value` pair in `{…}` object construction. Both are filters run
+/// against the construction's input. `keySpan` locates the offending key for
+/// the "cannot use … as object key" runtime error when `key` yields a
+/// non-string. Shorthand `{k}` is desugared at parse time to `key = "k"`,
+/// `value = .k`, so the evaluator sees one uniform shape.
+public struct ObjectEntry: Sendable, Equatable {
+    public let key: Filter
+    public let value: Filter
+    public let keySpan: SourceSpan
+
+    public init(key: Filter, value: Filter, keySpan: SourceSpan) {
+        self.key = key
+        self.value = value
+        self.keySpan = keySpan
+    }
 }
 
 /// The infix operators. `symbol` is the source spelling, used by `render` /

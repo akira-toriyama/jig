@@ -112,6 +112,17 @@ generator semantics が生む出力列。また入力側も stream — 1 つの 
 - 所在: `Filter` 各 case の `optional` — [`Sources/JigCore/Filter.swift`](../Sources/JigCore/Filter.swift)
 - **Don't call it:** try operator, safe navigation, `?.`
 
+### construction
+filter が新しい JSON 値を**組み立てる**構文 — **object construction** `{…}`
+と **array construction** `[…]`。object はキー/値の generator を
+**カルテシアン積**で展開（entry は左が外側、1 ペア内は key が value より
+外側＝ `k as $k | v as $v` 順）、重複キーは last-wins・最初の位置を保持。
+array `[f]` は f の value stream を 1 つの array に **materialize** する唯一の
+場所で、`.[…]` の index / iterate **suffix** とは別物（前者は値を作り、後者は
+値を取り出す）。
+- 所在: `Filter.objectConstruct` / `.arrayConstruct` — [`Sources/JigCore/Filter.swift`](../Sources/JigCore/Filter.swift)、`buildObjects` — [`Sources/JigCore/Evaluator.swift`](../Sources/JigCore/Evaluator.swift)
+- **Don't call it:** object / array literal（値リテラルではない — 入力に対し評価される filter）, comprehension
+
 ---
 
 ## データ model

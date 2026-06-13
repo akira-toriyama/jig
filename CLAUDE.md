@@ -130,6 +130,8 @@ filter (v0 subset — 全 jq 言語へのロードマップは docs/jq-compat.md
   .[0] .[-1] index               .[] .[]?     iterate
   f | g      pipe                f , g        both
   ( ... )    grouping            # ...        comment
+  {a: .b}    object construct    [.x] [.[]|f] array construct
+  {user}     shorthand (=.user)  {(.k): .v}   computed key
 
 flags: -c/--compact-output  -r/--raw-output  -n/--null-input
        --humane  -h/--help  -V/--version  --

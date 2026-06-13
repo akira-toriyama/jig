@@ -97,7 +97,11 @@ $ jig explain '.maintainers[] | .name'        # 平易な解説 + JS 等価
 ### 現在対応 (v0)
 
 `.` `.foo` `.foo?` `.[0]` `.[-1]` `.[]` `.[]?` `|` `,` `( … )` `# コメント`、
-scalar リテラル (`42` `"s"` `true` `false` `null`)、`a // b`、`a ?? b`、
+scalar リテラル (`42` `"s"` `true` `false` `null`)、オブジェクト / 配列構築
+(`{a: .b}`、短縮形 `{user}`、計算キー `{(.k): .v}`、`[.x, .y]`)、
+`a // b`、`a ?? b`、算術 `+ - * / %`（`"s"*n`・`arr-arr`・`obj+obj` マージ /
+`obj*obj` ディープマージ・`str/str` split を含む）、比較 `== != < <= > >=`
+（jq のクロス型全順序）、論理 `and` / `or`、単項マイナス `-x`、
 builtin `length keys keys_unsorted type not reverse add empty map(f)
 select(f) has(k)`（ECMAScript alias `typeof` / `filter`）。subcommand
 `jig explain` / `jig check`。全体像とロードマップ:
