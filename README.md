@@ -7,19 +7,20 @@
 
 **English** · [日本語](README.ja.md)
 
-A **jq-compatible JSON processor with humane errors**. jig runs your jq
-filters and keeps jq's semantics — but when something goes wrong, it tells
-you *where* in the filter, *what* it found, and *what to try next*:
+An **ergonomic JSON processor with humane diagnostics**. jig speaks a small,
+jq-inspired filter language — but when something goes wrong, it tells you
+*where* in the filter, *what* it found, and *what to try next*:
 
 ```console
-$ echo '{}' | jig '.items[]'
-jig: error: cannot iterate over null (null) (input #1)
-  .items[]
-        ^^
-  hint: use .[]? to skip non-iterable inputs, or // [] to default missing data
+$ echo '5' | jig '.name'
+jig: error: cannot index number with "name" (input #1)
+  .name
+  ^^^^^
+  hint: use .name? to skip inputs where this isn't an object
 ```
 
-(Compare jq: `jq: error (at <stdin>:0): Cannot iterate over null (null)`.)
+(jq reports `Cannot index number with "name"` too — but with no caret showing
+*where* in your filter it went wrong.)
 
 A *jig* is the workshop fixture that holds the stock and guides the cutting
 tool — which is what a query program does to JSON. Part of the
@@ -29,14 +30,15 @@ tool — which is what a query program does to JSON. Part of the
 > ergonomic JSON CLI**: jq-inspired syntax (a Unix-pure `|` pipe), a
 > lodash/es-toolkit-flavored builtin vocabulary, and humane diagnostics. It no
 > longer chases byte-for-byte jq compatibility (that's jq's / gojq's / jaq's
-> job). What's implemented today is a small jq-like core (see *Status*); where
-> jig is heading and why is in the **[roadmap](docs/roadmap.md)**.
+> job). What's implemented today is a small jq-like core (see *Currently
+> supported*); where jig is heading and why is in the
+> **[roadmap](docs/roadmap.md)**.
 
 ## Why another jq?
 
-jq is brilliant and jig intends to stay compatible with it
-([compatibility contract](docs/jq-compat.md)). But some long-standing pain
-points deserve fixing at the implementation level:
+jq is brilliant, and jig borrows its best idea — *JSON + a Unix pipe* — without
+chasing byte-for-byte compatibility (need that? reach for jq / gojq / jaq).
+Several long-standing pain points are worth fixing at the design level:
 
 - **Diagnostics.** Every jig error carries a source span (caret under your
   filter), jq-vocabulary type names, and a hint. No bison-speak, no
@@ -51,14 +53,13 @@ points deserve fixing at the implementation level:
   time is a tracked budget, not an accident (jq 1.6's 10× startup
   regression is the cautionary tale).
 
-jig is **dual-mode**: the default **jq mode** matches jq 1.7's observable
-behavior, so `alias jq=jig` keeps your scripts working. An opt-in **humane
-mode** (`--humane`, or `# jig:humane` at the top of a filter) turns on the
-saner-but-incompatible semantics — e.g. `//` stops treating `false` as
-missing, and iterating `null` yields nothing instead of erroring. Breaking
-changes only ever live behind that switch, and each one is enumerated in
-[docs/jq-compat.md](docs/jq-compat.md). The `??` nullish operator is additive
-and available in both modes.
+jig has **one semantics** — there is no mode switch. It keeps the jq spellings
+that have no better idiom (`//` falls back on `false`/`null`; `?` for optional
+access) and adopts a saner default where one clearly exists: iterating `null`
+yields nothing instead of erroring (consistent with how `null` already flows
+through `.foo` / `.[N]`), and the ECMAScript `??` gives nullish-only fallback
+(drops `null`, keeps `false`). Where the language is headed next is in the
+**[roadmap](docs/roadmap.md)**.
 
 ## Usage
 
@@ -115,7 +116,7 @@ deep-merge, `str/str` split), comparison `== != < <= > >=` (jq's cross-type
 total order), logical `and` / `or`, unary minus `-x`, and builtins
 `length keys keys_unsorted type not reverse add empty map(f) select(f) has(k)`
 (ECMAScript aliases `typeof`, `filter`). Subcommands `jig explain` /
-`jig check`. Full surface and roadmap: [docs/jq-compat.md](docs/jq-compat.md).
+`jig check`. Full surface and roadmap: [docs/roadmap.md](docs/roadmap.md).
 
 ## Input / Output
 
@@ -159,10 +160,11 @@ Verbose tracing is env-var-only (family convention): `JIG_DEBUG=1 jig … `
 writes a trace to stderr and `/tmp/jig.log`. There is no `--debug` flag.
 
 See [CLAUDE.md](CLAUDE.md) for architecture and constraints,
+[docs/roadmap.md](docs/roadmap.md) for direction and the builtin vocabulary,
 [docs/glossary.md](docs/glossary.md) for canonical terminology,
 [docs/commit-convention.md](docs/commit-convention.md) for the commit/release
-flow, and [docs/jq-compat.md](docs/jq-compat.md) for the compatibility
-policy.
+flow, and [docs/jq-compat.md](docs/jq-compat.md) for the **superseded**
+jq-compat notes (historical reference).
 
 ## Family
 
