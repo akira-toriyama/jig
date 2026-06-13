@@ -39,6 +39,28 @@ final class ExplainTests: XCTestCase {
                        "input.a.flatMap(x => x.b)")
     }
 
+    // Regression (roadmap §4 bug ②): select/filter after `.[]` must lower as a
+    // SIBLING `.filter(…)`, not nest inside the `.map(…)` callback.
+    func testJsSelectAfterIterateHoistsToFilter() {
+        XCTAssertEqual(jsEquivalent(try! parseFilter(".users[] | select(.active)")),
+                       "input.users.filter(x => x.active)")
+    }
+
+    func testJsSelectThenProjectionAfterIterate() {
+        XCTAssertEqual(jsEquivalent(try! parseFilter(".users[] | select(.active) | .name")),
+                       "input.users.filter(x => x.active).map(x => x.name)")
+    }
+
+    func testJsChainedSelectsAfterIterate() {
+        XCTAssertEqual(jsEquivalent(try! parseFilter(".users[] | select(.active) | select(.verified)")),
+                       "input.users.filter(x => x.active).filter(x => x.verified)")
+    }
+
+    func testJsProjectionThenSelectAfterIterate() {
+        XCTAssertEqual(jsEquivalent(try! parseFilter(".[] | .a | select(.x)")),
+                       "input.map(x => x.a).filter(x => x.x)")
+    }
+
     func testJsNegativeIndexUsesAt() {
         XCTAssertEqual(jsEquivalent(try! parseFilter(".items[-1]")),
                        "input.items.at(-1)")

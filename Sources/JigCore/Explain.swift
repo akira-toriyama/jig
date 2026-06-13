@@ -54,11 +54,11 @@ private func jsChain(_ stages: [Filter], subject: String) -> String {
             // JS Array.prototype.at handles negative indices like jq.
             expr += ".at(\(n))"
         case .iterate:
-            let rest = Array(stages[(i + 1)...])
-            if rest.isEmpty { return expr }  // the array stands in for its elements
-            // map projects 1:1; flatMap when a further iterate flattens.
-            let op = rest.contains(where: isIterate) ? "flatMap" : "map"
-            return "\(expr).\(op)(x => \(jsChain(rest, subject: "x")))"
+            // Everything after `.[]` runs element-wise over the array. Hand the
+            // remaining stages to jsStream so a following select/filter hoists
+            // OUT as a sibling `.filter(…)` rather than nesting wrongly inside
+            // the `.map(…)` callback.
+            return jsStream(expr, Array(stages[(i + 1)...]))
         case .comma(let a, let b):
             let ja = jsChain(flattenPipe(a), subject: expr)
             let jb = jsChain(flattenPipe(b), subject: expr)
@@ -120,6 +120,41 @@ private func jsChain(_ stages: [Filter], subject: String) -> String {
             break  // already flattened
         }
         i += 1
+    }
+    return expr
+}
+
+/// Lower the stages that run AFTER a `.[]` — the element-wise tail of a
+/// pipeline — over the array expression `arrayExpr`. A `select`/`filter`
+/// predicate hoists OUT of the projection as a sibling `.filter(x => …)`; a
+/// maximal run of projection stages collapses into a single `.map(x => …)`
+/// (`.flatMap` when that run iterates again). Empty tail → the array itself
+/// stands in for its elements. This is the fix for the old bug where
+/// `.users[] | select(.active)` lowered to `input.users.map(x => x.filter(…))`
+/// instead of `input.users.filter(x => x.active)`.
+private func jsStream(_ arrayExpr: String, _ stages: [Filter]) -> String {
+    func isSelect(_ f: Filter) -> Bool {
+        if case .call(let name, let args, _) = f,
+           name == "select" || name == "filter", args.count == 1 { return true }
+        return false
+    }
+    var expr = arrayExpr
+    var i = 0
+    while i < stages.count {
+        // select/filter — a predicate on the stream → a sibling `.filter(…)`.
+        if case .call(_, let args, _) = stages[i], isSelect(stages[i]) {
+            expr = "\(expr).filter(x => \(jsChain(flattenPipe(args[0]), subject: "x")))"
+            i += 1
+            continue
+        }
+        // Otherwise take the maximal run of projection stages up to the next
+        // select/filter and project it in one map / flatMap.
+        var j = i
+        while j < stages.count && !isSelect(stages[j]) { j += 1 }
+        let run = Array(stages[i..<j])
+        let op = run.contains(where: isIterate) ? "flatMap" : "map"
+        expr = "\(expr).\(op)(x => \(jsChain(run, subject: "x")))"
+        i = j
     }
     return expr
 }
