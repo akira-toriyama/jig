@@ -205,9 +205,9 @@ enum JigApp {
           # ...            comment to end of line
 
         BUILTINS (v0)
-          length keys keys_unsorted type not reverse add empty
-          map(f) select(f) has(k)
-          ECMAScript aliases: typeof (=type), filter (=select)
+          length keys keys_unsorted typeof not reverse sum empty
+          map(f) filter(f) has(k)
+          jq aliases (accepted, not canonical): type (=typeof), add (=sum), select (=filter)
 
         FLAGS
           -c, --compact-output   one line per output (default: 2-space pretty)

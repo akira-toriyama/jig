@@ -26,15 +26,16 @@ final class BuiltinsTests: XCTestCase {
         XCTAssertThrowsError(try run("keys", on: "5"))
     }
 
-    func testType() throws {
-        XCTAssertEqual(try run("type", on: "null"), [#""null""#])
-        XCTAssertEqual(try run("type", on: "true"), [#""boolean""#])
-        XCTAssertEqual(try run("type", on: "1"), [#""number""#])
-        XCTAssertEqual(try run("type", on: #""x""#), [#""string""#])
-        XCTAssertEqual(try run("type", on: "[]"), [#""array""#])
-        XCTAssertEqual(try run("type", on: "{}"), [#""object""#])
-        // typeof is the ECMAScript-named alias.
+    func testTypeofCanonicalAndTypeAlias() throws {
+        // typeof is the canonical (es-toolkit/JS) name.
+        XCTAssertEqual(try run("typeof", on: "null"), [#""null""#])
+        XCTAssertEqual(try run("typeof", on: "true"), [#""boolean""#])
         XCTAssertEqual(try run("typeof", on: "1"), [#""number""#])
+        XCTAssertEqual(try run("typeof", on: #""x""#), [#""string""#])
+        XCTAssertEqual(try run("typeof", on: "[]"), [#""array""#])
+        XCTAssertEqual(try run("typeof", on: "{}"), [#""object""#])
+        // `type` is the accepted jq alias (same implementation).
+        XCTAssertEqual(try run("type", on: "1"), [#""number""#])
     }
 
     func testNot() throws {
@@ -51,14 +52,17 @@ final class BuiltinsTests: XCTestCase {
         XCTAssertThrowsError(try run("reverse", on: "5"))
     }
 
-    func testAdd() throws {
+    func testSumCanonicalAndAddAlias() throws {
+        // sum is the canonical (es-toolkit) name.
+        XCTAssertEqual(try run("sum", on: "[1,2,3]"), ["6"])
+        XCTAssertEqual(try run("sum", on: "[[1],[2],[3]]"), ["[1,2,3]"])
+        XCTAssertEqual(try run("sum", on: #"["a","b","c"]"#), [#""abc""#])
+        XCTAssertEqual(try run("sum", on: "[]"), ["null"])
+        XCTAssertEqual(try run("sum", on: "null"), ["null"])
+        XCTAssertEqual(try run("sum", on: #"[{"a":1},{"b":2}]"#), [#"{"a":1,"b":2}"#])
+        XCTAssertThrowsError(try run("sum", on: "[1,\"x\"]"))
+        // `add` is the accepted jq alias (same implementation).
         XCTAssertEqual(try run("add", on: "[1,2,3]"), ["6"])
-        XCTAssertEqual(try run("add", on: "[[1],[2],[3]]"), ["[1,2,3]"])
-        XCTAssertEqual(try run("add", on: #"["a","b","c"]"#), [#""abc""#])
-        XCTAssertEqual(try run("add", on: "[]"), ["null"])
-        XCTAssertEqual(try run("add", on: "null"), ["null"])
-        XCTAssertEqual(try run("add", on: #"[{"a":1},{"b":2}]"#), [#"{"a":1,"b":2}"#])
-        XCTAssertThrowsError(try run("add", on: "[1,\"x\"]"))
     }
 
     func testEmpty() throws {
@@ -72,14 +76,15 @@ final class BuiltinsTests: XCTestCase {
         XCTAssertEqual(try run("map(.)", on: #"{"a":1,"b":2}"#), ["[1,2]"])
     }
 
-    func testSelectAndFilterAlias() throws {
-        XCTAssertEqual(
-            try run("map(select(.active))",
-                    on: #"[{"active":true,"n":1},{"active":false,"n":2}]"#),
-            [#"[{"active":true,"n":1}]"#])
-        // filter is the ECMAScript-named alias of select.
+    func testFilterCanonicalAndSelectAlias() throws {
+        // filter is the canonical (es-toolkit/JS) name.
         XCTAssertEqual(
             try run("map(filter(.active))",
+                    on: #"[{"active":true,"n":1},{"active":false,"n":2}]"#),
+            [#"[{"active":true,"n":1}]"#])
+        // `select` is the accepted jq alias of filter (same implementation).
+        XCTAssertEqual(
+            try run("map(select(.active))",
                     on: #"[{"active":true,"n":1},{"active":false,"n":2}]"#),
             [#"[{"active":true,"n":1}]"#])
     }

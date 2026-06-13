@@ -114,8 +114,8 @@ string interpolation `"a\(.x)b"` (with the additive ECMAScript spelling
 arithmetic `+ - * / %` (incl. `"s"*n`, `arr-arr`, `obj+obj` merge / `obj*obj`
 deep-merge, `str/str` split), comparison `== != < <= > >=` (jq's cross-type
 total order), logical `and` / `or`, unary minus `-x`, and builtins
-`length keys keys_unsorted type not reverse add empty map(f) select(f) has(k)`
-(ECMAScript aliases `typeof`, `filter`). Subcommands `jig explain` /
+`length keys keys_unsorted typeof not reverse sum empty map(f) filter(f) has(k)`
+(jq aliases `type` / `add` / `select` are accepted). Subcommands `jig explain` /
 `jig check`. Full surface and roadmap: [docs/roadmap.md](docs/roadmap.md).
 
 ## Input / Output
