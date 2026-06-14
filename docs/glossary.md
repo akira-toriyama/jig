@@ -134,6 +134,56 @@ array `[f]` は f の value stream を 1 つの array に **materialize** する
 
 ---
 
+## builtin（Wave1 合成セット）
+
+> 正典名は es-toolkit / JS 綴り。jq 名と**形が違う**ものは alias しない（混同を
+> 防ぐ）。設計の根拠は [principles.md](principles.md)（§2 小さく重ねる・§5 診断）。
+
+### slice
+`.[a:b]` — 配列/文字列の部分列。両端 optional（`.[a:]` `.[:b]` `.[:]`）、負
+index は末尾から、範囲外は clamp、`low >= high` は空。文字列は **Unicode scalar**
+単位（`length` と一貫）。`.index`（配列のみ）・`.iterate` `.[]` とは別 suffix。
+- 所在: `Filter.slice` — [`Sources/JigCore/Filter.swift`](../Sources/JigCore/Filter.swift)、eval — [`Sources/JigCore/Evaluator.swift`](../Sources/JigCore/Evaluator.swift)、parse は `parseSuffix` の `[` 分岐 — [`Sources/JigCore/FilterParser.swift`](../Sources/JigCore/FilterParser.swift)
+- **Don't call it:** substring / substr（文字列専用ではない）, `.[a:b:c]`（step 付きスライスは無い）
+
+### range
+`range(n)` / `range(from; to[; step])` — 有限の数値 **stream**（generator）。
+位置別スカラ引数なので `;` 区切り（`,` は別物＝ストリーム）。jig の評価器は eager
+なので**上限ガード**（1000 万件）付き＝OOM を humane エラーに。真の遅延 range は
+roadmap §5(12)。
+- 所在: `rangeValues` — [`Sources/JigCore/Builtins.swift`](../Sources/JigCore/Builtins.swift)
+- **Don't call it:** lodash `range`（配列を返す。jig は stream）, 無限 range（今は有限のみ）
+
+### groupBy
+配列を**キー式ごとに分類**し `{key: [items…]}` を返す（人が欲しい形）。キーは
+f の **第1出力**を tostring 強制（string はそのまま・number/bool は compact JSON・
+null/array/object はエラー）。キーは初出順。
+- 所在: `groupByOf` — [`Sources/JigCore/Builtins.swift`](../Sources/JigCore/Builtins.swift)
+- **Don't call it:** `group_by`（jq の配列の配列 `[[…],[…]]` ＝**別形・非 alias**）, classify
+
+### mapValues
+object の各**値** / 配列の各**要素**に f を適用（キー/順序は保持）、f の第1出力で
+置換。**空出力は entry を落とす**（jq `.[] |= f` 整合）。`map_values` は受理 alias。
+`groupBy(f) | mapValues(length)` ＝ `countBy(f)`。
+- 所在: `mapValuesOf` — [`Sources/JigCore/Builtins.swift`](../Sources/JigCore/Builtins.swift)
+- **Don't call it:** `map`（array と object で挙動が違う・`map` は `[.[]|f]`）
+
+### orderBy
+配列を**キーでソート**。`orderBy(.a, .b)` は comma が**キー組**（ストリームのまま＝
+[principles.md](principles.md) §1）、`jqCompare` 全順序で **index tie-break の安定
+ソート**。**降順は `| reverse`**（方向引数を作らない＝§2）。`orderBy(.x, "desc")` の
+文字列リテラルは罠 → 診断で拾う（§5）。
+- 所在: `orderByOf` / `stringLiteralKey` — [`Sources/JigCore/Builtins.swift`](../Sources/JigCore/Builtins.swift)
+- **Don't call it:** sort / sortBy / `sort_by`（正典は `orderBy`・alias は Wave2）, `orderBy(f, "desc")`（方向引数は無い）
+
+### toPairs / fromPairs
+object ⇄ `[[key, value], …]`（JS `Object.entries` / `Object.fromEntries`）。
+`fromPairs` は 2 要素配列・string キー必須、重複は後勝ち（初出位置保持）。
+- 所在: `toPairsOf` / `fromPairsOf` — [`Sources/JigCore/Builtins.swift`](../Sources/JigCore/Builtins.swift)
+- **Don't call it:** `to_entries` / `from_entries`（jq の `[{key,value}]` ＝**別形・非 alias**）, entries
+
+---
+
 ## データ model
 
 ### JigValue

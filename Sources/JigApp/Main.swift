@@ -187,6 +187,7 @@ enum JigApp {
           .                identity
           .foo.bar         field access (append ? to ignore type errors)
           .[0]  .[-1]      array index
+          .[a:b]           slice arrays/strings (.[a:] .[:b] .[:], negatives ok)
           .[]              iterate array elements / object values
           f | g            pipe: outputs of f feed g
           f , g            both: outputs of f, then outputs of g
@@ -207,7 +208,12 @@ enum JigApp {
         BUILTINS (v0)
           length keys keys_unsorted typeof not reverse sum empty
           map(f) filter(f) has(k)
-          jq aliases (accepted, not canonical): type (=typeof), add (=sum), select (=filter)
+          range(n) range(from;to[;step])    finite number stream (eager)
+          groupBy(f)       partition an array into {key: [items]}
+          mapValues(f)     transform each value of an object / element of an array
+          orderBy(f)       sort an array by key(s) (descending: orderBy(f) | reverse)
+          toPairs fromPairs   object ⇄ [[key, value], …]
+          jq aliases (accepted, not canonical): type (=typeof), add (=sum), select (=filter), map_values (=mapValues)
 
         FLAGS
           -c, --compact-output   one line per output (default: 2-space pretty)

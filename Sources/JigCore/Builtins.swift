@@ -51,12 +51,31 @@ func evalCall(_ name: String, _ args: [Filter], on input: JigValue,
         }
         return out
 
+    case ("range", 1), ("range", 2), ("range", 3):
+        return try rangeValues(args, on: input, span)
+
+    case ("groupBy", 1):
+        return [try groupByOf(args[0], on: input, span)]
+
+    case ("mapValues", 1), ("map_values", 1):  // canonical: mapValues — `map_values` is the jq alias
+        return [try mapValuesOf(args[0], on: input, span)]
+
+    case ("orderBy", 1):
+        return [try orderByOf(args[0], on: input, span)]
+
+    case ("toPairs", 0):
+        return [try toPairsOf(input, span)]
+
+    case ("fromPairs", 0):
+        return [try fromPairsOf(input, span)]
+
     default:
         throw EvalError(
             message: "\(name)/\(args.count) is not defined",
             span: span,
-            hint: "implemented builtins (v0): length, keys, keys_unsorted, typeof, "
-                + "not, reverse, sum, empty, map(f), filter(f), has(k) — more on the roadmap")
+            hint: "implemented builtins: length, keys, keys_unsorted, typeof, not, "
+                + "reverse, sum, empty, map(f), filter(f), has(k), range(n), groupBy(f), "
+                + "mapValues(f), orderBy(f), toPairs, fromPairs (plus the .[a:b] slice) — more on the roadmap")
     }
 }
 
@@ -153,6 +172,213 @@ private func hasKey(_ input: JigValue, _ key: JigValue, _ span: SourceSpan) thro
         throw EvalError(message: "cannot check whether \(input.typeName) has a key", span: span,
                         hint: "has(k) works on objects (string key) and arrays (number index)")
     }
+}
+
+// MARK: Wave 1 composition set (docs/plan-wave1.md)
+
+/// The eager-range guard: jq's `range` is a lazy generator, but jig's evaluator
+/// holds the whole stream in memory, so an oversized range is a humane error
+/// rather than an OOM. Lazy-ification is a scheduled roadmap item.
+private let rangeLimit = 10_000_000
+
+/// `range(n)` / `range(from; to)` / `range(from; to; step)` — a finite, EAGER
+/// stream of numbers. Each bound is a `;`-separated scalar arg; several outputs
+/// per bound form a cartesian product (jq). A zero step is rejected; a negative
+/// step counts down.
+private func rangeValues(_ args: [Filter], on input: JigValue, _ span: SourceSpan) throws -> [JigValue] {
+    let froms: [Double], tos: [Double], steps: [Double]
+    if args.count == 1 {
+        froms = [0]
+        tos = try numericArgs(args[0], on: input, span, role: "count")
+        steps = [1]
+    } else {
+        froms = try numericArgs(args[0], on: input, span, role: "from")
+        tos = try numericArgs(args[1], on: input, span, role: "to")
+        steps = args.count == 3 ? try numericArgs(args[2], on: input, span, role: "step") : [1]
+    }
+    var out: [JigValue] = []
+    for from in froms {
+        for to in tos {
+            for step in steps {
+                guard step != 0 else {
+                    throw EvalError(
+                        message: "range step cannot be zero", span: span,
+                        hint: "a positive step counts up, a negative one counts down; range(from; to) defaults to step 1")
+                }
+                var x = from
+                while step > 0 ? x < to : x > to {
+                    if out.count >= rangeLimit {
+                        throw EvalError(
+                            message: "range would exceed the \(rangeLimit)-element cap", span: span,
+                            hint: "jig's range is eager (held in memory); narrow the bounds — a lazy range is on the roadmap")
+                    }
+                    out.append(.number(JigNumber(x)))
+                    x += step
+                }
+            }
+        }
+    }
+    return out
+}
+
+/// Evaluate one `range` bound to its numeric outputs, erroring on a non-number.
+private func numericArgs(_ f: Filter, on input: JigValue, _ span: SourceSpan, role: String) throws -> [Double] {
+    try evaluate(f, on: input).map { v in
+        guard case .number(let n) = v else {
+            throw EvalError(
+                message: "range \(role) must be a number, got \(v.typeName)\(shortValue(v))", span: span,
+                hint: "range(from; to; step) takes numeric bounds")
+        }
+        return n.double
+    }
+}
+
+/// `groupBy(f)` — partition an array into `{key: [items…]}`, keyed by f's first
+/// output per element. The result is an OBJECT (the shape people actually want),
+/// NOT jq's `group_by` array-of-arrays — deliberately different and not aliased
+/// (docs/roadmap.md §3 collision table). Keys keep first-seen order.
+private func groupByOf(_ keyer: Filter, on input: JigValue, _ span: SourceSpan) throws -> JigValue {
+    guard case .array(let items) = input else {
+        throw EvalError(
+            message: "cannot groupBy \(input.typeName)\(shortValue(input))", span: span,
+            hint: "groupBy partitions the elements of an array into an object keyed by f")
+    }
+    var groups: [(key: String, value: [JigValue])] = []
+    for item in items {
+        let key = try groupKeyString(try evaluate(keyer, on: item).first ?? .null, span)
+        if let i = groups.firstIndex(where: { $0.key == key }) {
+            groups[i].value.append(item)
+        } else {
+            groups.append((key: key, value: [item]))
+        }
+    }
+    return .object(groups.map { (key: $0.key, value: .array($0.value)) })
+}
+
+/// Coerce a groupBy key to a string with the interpolation `tostring` rule: a
+/// string stays itself, a number/boolean becomes its compact JSON text (`1` →
+/// "1", `true` → "true"). null/array/object can't be object keys → humane error.
+private func groupKeyString(_ v: JigValue, _ span: SourceSpan) throws -> String {
+    switch v {
+    case .string(let s): return s
+    case .number, .bool: return writeJSON(v, style: .compact)
+    default:
+        throw EvalError(
+            message: "groupBy key is \(v.typeName)\(shortValue(v)) — keys must be string, number, or boolean", span: span,
+            hint: "object keys are strings; map the key to a scalar first (e.g. groupBy(.tag // \"none\"))")
+    }
+}
+
+/// `mapValues(f)` — apply f to each value of an object (keys kept) or element of
+/// an array (order kept), replacing it with f's FIRST output. An empty output
+/// DROPS that entry, matching jq's `.[] |= f`. A scalar input is an error.
+private func mapValuesOf(_ f: Filter, on input: JigValue, _ span: SourceSpan) throws -> JigValue {
+    switch input {
+    case .object(let pairs):
+        var out: [(key: String, value: JigValue)] = []
+        for (k, v) in pairs {
+            if let nv = try evaluate(f, on: v).first { out.append((key: k, value: nv)) }
+        }
+        return .object(out)
+    case .array(let items):
+        var out: [JigValue] = []
+        for v in items {
+            if let nv = try evaluate(f, on: v).first { out.append(nv) }
+        }
+        return .array(out)
+    default:
+        throw EvalError(
+            message: "cannot mapValues over \(input.typeName)\(shortValue(input))", span: span,
+            hint: "mapValues transforms the values of an object or the elements of an array")
+    }
+}
+
+/// `orderBy(f)` — stably sort an array by the key(s) f produces per element.
+/// f's whole output stream is the key tuple, compared with jq's total order, so
+/// `orderBy(.a, .b)` sorts by `.a` then `.b` (the comma stays a stream; the keys
+/// are a tuple — principles §1). Descending is `orderBy(f) | reverse`, never a
+/// direction arg (principles §2). A string literal among the keys is the
+/// `orderBy(.x, "desc")` footgun and is flagged (principles §5).
+private func orderByOf(_ keyer: Filter, on input: JigValue, _ span: SourceSpan) throws -> JigValue {
+    if let lit = stringLiteralKey(keyer) {
+        throw EvalError(
+            message: "orderBy got the string literal \(writeJSON(lit, style: .compact)) as a sort key", span: span,
+            hint: "a string literal sorts every element by the same constant (a no-op) — for descending order use `| reverse`, e.g. orderBy(.field) | reverse")
+    }
+    guard case .array(let items) = input else {
+        throw EvalError(
+            message: "cannot orderBy \(input.typeName)\(shortValue(input))", span: span,
+            hint: "orderBy sorts the elements of an array")
+    }
+    var decorated: [(keys: [JigValue], index: Int, value: JigValue)] = []
+    decorated.reserveCapacity(items.count)
+    for (i, item) in items.enumerated() {
+        let keys = try evaluate(keyer, on: item)
+        // An empty key stream sorts as null (front) — principles/plan §②.
+        decorated.append((keys: keys.isEmpty ? [.null] : keys, index: i, value: item))
+    }
+    decorated.sort { a, b in
+        let c = jqCompare(.array(a.keys), .array(b.keys))
+        return c != 0 ? c < 0 : a.index < b.index   // index tie-break ⇒ stable
+    }
+    return .array(decorated.map(\.value))
+}
+
+/// Detect a string literal used as a sort key — directly, or among the comma
+/// tuple of keys (`orderBy(.x, "desc")`). Only the comma spine is walked; a
+/// string produced by a pipe/expression is a legitimate computed key.
+private func stringLiteralKey(_ f: Filter) -> JigValue? {
+    switch f {
+    case .literal(let v):
+        if case .string = v { return v }
+        return nil
+    case .comma(let a, let b):
+        return stringLiteralKey(a) ?? stringLiteralKey(b)
+    default:
+        return nil
+    }
+}
+
+/// `toPairs` — an object → `[[key, value], …]` in key order. This `[[k,v]]`
+/// shape is NOT jq's `to_entries` `[{key,value}]`; different and not aliased
+/// (docs/roadmap.md §3).
+private func toPairsOf(_ input: JigValue, _ span: SourceSpan) throws -> JigValue {
+    guard case .object(let pairs) = input else {
+        throw EvalError(
+            message: "cannot toPairs \(input.typeName)\(shortValue(input))", span: span,
+            hint: "toPairs turns an object into [[key, value], …]")
+    }
+    return .array(pairs.map { .array([.string($0.key), $0.value]) })
+}
+
+/// `fromPairs` — `[[key, value], …]` → an object (the inverse of `toPairs`).
+/// Each entry must be a two-element array with a string key; a duplicate key
+/// keeps its first position with the last value (like object construction).
+private func fromPairsOf(_ input: JigValue, _ span: SourceSpan) throws -> JigValue {
+    guard case .array(let entries) = input else {
+        throw EvalError(
+            message: "cannot fromPairs \(input.typeName)\(shortValue(input))", span: span,
+            hint: "fromPairs turns [[key, value], …] into an object")
+    }
+    var out: [(key: String, value: JigValue)] = []
+    for entry in entries {
+        guard case .array(let kv) = entry, kv.count == 2 else {
+            throw EvalError(
+                message: "fromPairs needs [key, value] pairs, got \(entry.typeName)\(shortValue(entry))", span: span,
+                hint: "each entry must be a two-element array [key, value] with a string key")
+        }
+        guard case .string(let k) = kv[0] else {
+            throw EvalError(
+                message: "fromPairs key must be a string, got \(kv[0].typeName)\(shortValue(kv[0]))", span: span,
+                hint: "each entry is [key, value] where key is a string")
+        }
+        if let i = out.firstIndex(where: { $0.key == k }) {
+            out[i].value = kv[1]
+        } else {
+            out.append((key: k, value: kv[1]))
+        }
+    }
+    return .object(out)
 }
 
 /// Short value rendering for diagnostics — " (null)" / " (3)" / "" when long.
