@@ -222,6 +222,7 @@ enum JigApp {
           mean meanBy(f)   average of an array's numbers (empty → null)
           pick(keys)       keep only these object keys (pick("a","b"))
           omit(keys)       drop these object keys (omit("a","b"))
+          pickBy(f) omitBy(f)   keep/drop object entries by a predicate on the value
           jq aliases (accepted, not canonical): type (=typeof), add (=sum), select (=filter), map_values (=mapValues), min_by (=minBy), max_by (=maxBy), avg (=mean), avgBy (=meanBy)
 
         FLAGS

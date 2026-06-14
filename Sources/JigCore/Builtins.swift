@@ -98,6 +98,10 @@ func evalCall(_ name: String, _ args: [Filter], on input: JigValue,
         return [try pickOf(args[0], on: input, span)]
     case ("omit", 1):
         return [try omitOf(args[0], on: input, span)]
+    case ("pickBy", 1):
+        return [try pickByOf(args[0], on: input, span, keepWhenTruthy: true)]
+    case ("omitBy", 1):
+        return [try pickByOf(args[0], on: input, span, keepWhenTruthy: false)]
 
     default:
         throw EvalError(
@@ -106,8 +110,8 @@ func evalCall(_ name: String, _ args: [Filter], on input: JigValue,
             hint: "implemented builtins: length, keys, keys_unsorted, typeof, not, reverse, "
                 + "sum, empty, map(f), filter(f), has(k), range(n), groupBy(f), mapValues(f), "
                 + "orderBy(f), toPairs, fromPairs, min, max, minBy(f), maxBy(f), uniq, uniqBy(f), "
-                + "countBy(f), keyBy(f), sumBy(f), mean, meanBy(f), pick(keys), omit(keys) "
-                + "(plus the .[a:b] slice) — more on the roadmap")
+                + "countBy(f), keyBy(f), sumBy(f), mean, meanBy(f), pick(keys), omit(keys), "
+                + "pickBy(f), omitBy(f) (plus the .[a:b] slice) — more on the roadmap")
     }
 }
 
@@ -581,6 +585,26 @@ private func omitOf(_ keyFilter: Filter, on input: JigValue, _ span: SourceSpan)
         drop.insert(ks)
     }
     return .object(pairs.filter { !drop.contains($0.key) })
+}
+
+/// `pickBy(f)` / `omitBy(f)` — the object analogue of `filter`: keep (pickBy) or
+/// drop (omitBy) each entry by a PREDICATE run on its VALUE (`.` is the value,
+/// like `mapValues`), using f's first output's truthiness (an empty output is
+/// falsy). Order is preserved; a scalar/array input is an error.
+private func pickByOf(_ f: Filter, on input: JigValue, _ span: SourceSpan,
+                     keepWhenTruthy: Bool) throws -> JigValue {
+    let name = keepWhenTruthy ? "pickBy" : "omitBy"
+    guard case .object(let pairs) = input else {
+        throw EvalError(
+            message: "cannot \(name) \(input.typeName)\(shortValue(input))", span: span,
+            hint: "\(name) keeps/drops object entries by a predicate on each value")
+    }
+    var out: [(key: String, value: JigValue)] = []
+    for (k, v) in pairs {
+        let isTruthy = try evaluate(f, on: v).first.map(truthy) ?? false
+        if isTruthy == keepWhenTruthy { out.append((key: k, value: v)) }
+    }
+    return .object(out)
 }
 
 /// Short value rendering for diagnostics — " (null)" / " (3)" / "" when long.

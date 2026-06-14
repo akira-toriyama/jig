@@ -114,7 +114,7 @@ builtin `length keys keys_unsorted typeof not reverse sum empty map(f)
 filter(f) has(k)` ＋ Wave 1 合成・集計セット
 `range(n) groupBy(f) mapValues(f) orderBy(f) toPairs fromPairs min max minBy(f)
 maxBy(f) uniq uniqBy(f) countBy(f) keyBy(f) sumBy(f) mean meanBy(f) pick(keys)
-omit(keys)`
+omit(keys) pickBy(f) omitBy(f)`
 （降順は `orderBy(f) | reverse`、`countBy` = `groupBy(f) | mapValues(length)`、
 `uniq` は順序保持＝jq `unique` のソートと別、`pick` はキー文字列選択＝jq の path 版とは別）
 （jq alias `type` / `add` / `select` / `map_values` / `min_by` / `max_by` / `avg` / `avgBy` も受理）。subcommand
