@@ -74,10 +74,15 @@ final class FilterParserTests: XCTestCase {
         }
     }
 
-    func testDollarGetsShellHint() {
-        XCTAssertThrowsError(try parseFilter("$name")) { error in
+    func testDollarInWrongPositionGetsHint() {
+        // A bare `$name` now PARSES (a variable reference, bound by `reduce`);
+        // it's only unbound at eval. But `$` where a value can't go — e.g. a
+        // dynamic `.[$x]` index, which jig lacks — still errors at parse with the
+        // shell-expansion hint.
+        XCTAssertNoThrow(try parseFilter("$name"))
+        XCTAssertThrowsError(try parseFilter(".[$x]")) { error in
             guard let e = error as? FilterParseError else { return XCTFail() }
-            XCTAssertTrue(e.hint?.contains("shell") == true)
+            XCTAssertTrue(e.hint?.contains("shell") == true, e.hint ?? "nil")
         }
     }
 

@@ -113,7 +113,9 @@ string interpolation `"a\(.x)b"` (with the additive ECMAScript spelling
 `"a${.x}b"`), `a // b`, `a ?? b`,
 arithmetic `+ - * / %` (incl. `"s"*n`, `arr-arr`, `obj+obj` merge / `obj*obj`
 deep-merge, `str/str` split), comparison `== != < <= > >=` (jq's cross-type
-total order), logical `and` / `or`, unary minus `-x`, and builtins
+total order), logical `and` / `or`, unary minus `-x`,
+`reduce S as $x (init; update)` (fold a stream into one value; `$x` binds each
+element, `.` is the accumulator), and builtins
 `length keys keys_unsorted typeof not reverse sum empty map(f) filter(f) has(k)`
 plus the Wave 1 composition + aggregation set
 `range(n) groupBy(f) mapValues(f) orderBy(f) toPairs fromPairs min max minBy(f)

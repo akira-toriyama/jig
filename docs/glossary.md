@@ -132,6 +132,16 @@ array `[f]` は f の value stream を 1 つの array に **materialize** する
 - 所在: `Filter.stringInterp` / `StringPart` — [`Sources/JigCore/Filter.swift`](../Sources/JigCore/Filter.swift)、`interpolate` — [`Sources/JigCore/Evaluator.swift`](../Sources/JigCore/Evaluator.swift)
 - **Don't call it:** template string（JS 等価の説明では template literal と呼ぶが、jig の正規名は string interpolation）, format string（`@base64` 等の `@fmt "…"` は別物 — roadmap step 6）
 
+### reduce / $variable
+`reduce SOURCE as $x (INIT; UPDATE)` — SOURCE のストリームを累積値へ**畳む**唯一の
+構文。jq は **INIT の各出力ごとに独立した畳み込みを1回**走らせる（空 INIT→出力なし・
+N 出力→N 結果）。各 fold 内で SOURCE 値ごとに `$x` を束縛して UPDATE を**累積値 `.` の
+上で**評価、その**最後の出力**を新累積値に（空出力→null＝jq 一致）。
+`$x` は**唯一の束縛子 reduce が代入（substitute）で解決**するので、評価器に環境を通さず
+レキシカルシャドウも正しい。reduce の外の `$x` は「未束縛」エラー。
+- 所在: `Filter.reduce` / `Filter.variable` — [`Sources/JigCore/Filter.swift`](../Sources/JigCore/Filter.swift)、`substitute`/eval — [`Sources/JigCore/Evaluator.swift`](../Sources/JigCore/Evaluator.swift)、`parseReduce` — [`Sources/JigCore/FilterParser.swift`](../Sources/JigCore/FilterParser.swift)
+- **Don't call it:** fold（説明語としては可・正規名は reduce）, `--arg`/`--argjson`（外部変数は別物・未実装 [[project-jig-zip-gap]]）, `.[$x]` 動的 index（jig 未対応・index は整数リテラルのみ）
+
 ---
 
 ## builtin（Wave1 合成セット）
