@@ -222,4 +222,52 @@ final class BuiltinsTests: XCTestCase {
         XCTAssertEqual(try run("groupBy(.g) | mapValues(length)", on: #"[{"g":"a"},{"g":"b"},{"g":"a"}]"#),
                        [#"{"a":2,"b":1}"#])
     }
+
+    // MARK: Wave 1 aggregation set (docs/roadmap.md §3 — reductions over arrays)
+
+    func testMinMax() throws {
+        XCTAssertEqual(try run("min", on: "[3,1,2,1]"), ["1"])
+        XCTAssertEqual(try run("max", on: "[3,1,2,1]"), ["3"])
+        // Empty → null (the empty-aggregate discipline), not an error.
+        XCTAssertEqual(try run("min", on: "[]"), ["null"])
+        XCTAssertEqual(try run("max", on: "[]"), ["null"])
+        // Mixed types use jq's total order: null < false < true < number < string.
+        XCTAssertEqual(try run("min", on: #"[3,"b",null,true,1]"#), ["null"])
+        XCTAssertEqual(try run("max", on: #"[3,"b",null,true,1]"#), [#""b""#])
+        XCTAssertThrowsError(try run("min", on: "5"))
+    }
+
+    func testMinByMaxByTieBreakMatchesJq() throws {
+        // jq tie-break: minBy keeps the FIRST minimum, maxBy the LAST maximum.
+        let data = #"[{"k":2,"id":"a"},{"k":1,"id":"b"},{"k":1,"id":"c"},{"k":2,"id":"d"}]"#
+        XCTAssertEqual(try run("minBy(.k)", on: data), [#"{"k":1,"id":"b"}"#])
+        XCTAssertEqual(try run("maxBy(.k)", on: data), [#"{"k":2,"id":"d"}"#])
+        // `min_by` / `max_by` are the accepted jq aliases.
+        XCTAssertEqual(try run("min_by(.k)", on: data), [#"{"k":1,"id":"b"}"#])
+        XCTAssertEqual(try run("max_by(.k)", on: data), [#"{"k":2,"id":"d"}"#])
+        XCTAssertEqual(try run("minBy(.k)", on: "[]"), ["null"])
+    }
+
+    func testUniqIsOrderPreserving() throws {
+        // jig's uniq keeps input order (jq's `unique` SORTS — uniq is not aliased).
+        XCTAssertEqual(try run("uniq", on: "[3,1,2,1,3]"), ["[3,1,2]"])
+        // Equality is jq's `==` — objects compare order-insensitively.
+        XCTAssertEqual(try run("uniq", on: #"[{"a":1,"b":2},{"b":2,"a":1}]"#), [#"[{"a":1,"b":2}]"#])
+        XCTAssertEqual(try run("uniqBy(.t)", on: #"[{"t":"x","n":1},{"t":"y","n":2},{"t":"x","n":3}]"#),
+                       [#"[{"t":"x","n":1},{"t":"y","n":2}]"#])
+        XCTAssertThrowsError(try run("uniq", on: "5"))
+    }
+
+    func testCountByKeyBySumBy() throws {
+        XCTAssertEqual(try run("countBy(.g)", on: #"[{"g":"a"},{"g":"b"},{"g":"a"}]"#), [#"{"a":2,"b":1}"#])
+        // keyBy: duplicate key keeps first position, last record wins.
+        XCTAssertEqual(try run("keyBy(.id)", on: #"[{"id":"x","v":1},{"id":"y","v":2},{"id":"x","v":9}]"#),
+                       [#"{"x":{"id":"x","v":9},"y":{"id":"y","v":2}}"#])
+        XCTAssertEqual(try run("sumBy(.x)", on: #"[{"x":1},{"x":2},{"x":3}]"#), ["6"])
+        XCTAssertEqual(try run("sumBy(.x)", on: "[]"), ["null"])   // empty → null, like sum
+        // countBy == groupBy | mapValues(length) (the composition it bottles).
+        XCTAssertEqual(try run("countBy(.g)", on: #"[{"g":"a"},{"g":"b"},{"g":"a"}]"#),
+                       try run("groupBy(.g) | mapValues(length)", on: #"[{"g":"a"},{"g":"b"},{"g":"a"}]"#))
+        XCTAssertThrowsError(try run("keyBy(.id)", on: "5"))
+    }
 }

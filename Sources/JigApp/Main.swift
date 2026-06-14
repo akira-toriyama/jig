@@ -213,7 +213,13 @@ enum JigApp {
           mapValues(f)     transform each value of an object / element of an array
           orderBy(f)       sort an array by key(s) (descending: orderBy(f) | reverse)
           toPairs fromPairs   object ⇄ [[key, value], …]
-          jq aliases (accepted, not canonical): type (=typeof), add (=sum), select (=filter), map_values (=mapValues)
+          min max          extremum of an array (empty → null)
+          minBy(f) maxBy(f)   element with the min/max key
+          uniq uniqBy(f)   drop duplicates, keeping order (jq's unique sorts)
+          countBy(f)       frequency table {key: count}
+          keyBy(f)         index records into {key: record}
+          sumBy(f)         projected sum (= map(f) | sum)
+          jq aliases (accepted, not canonical): type (=typeof), add (=sum), select (=filter), map_values (=mapValues), min_by (=minBy), max_by (=maxBy)
 
         FLAGS
           -c, --compact-output   one line per output (default: 2-space pretty)
