@@ -280,10 +280,13 @@ jig の新規性はパイプでなくここに全振りする。
 ## 8. リレー引き継ぎ
 
 - **済（〜2026-06-13）**: コア v0 / 演算子(PR #7) / 構築(PR #8) / **文字列補間(PR #10, step 2 完了)** / 方針転換・パイプ決定・採用カタログの確定（roadmap PR #11/#12）。
-- **済（2026-06-14 クリーンアップ・セッション ＝ §5 step 1〜4）**: バグ①② 修正・**dual-mode 撤去**（`Mode.swift` 削除・`mode` 引数除去・`--humane`/`JIG_MODE`/pragma 撤去）・**jq 互換負債の一掃**（README ×2 / CLAUDE / glossary / Package.swift / CONTRIBUTING / PR template / run.sh / homebrew / 全コメント）・**es-toolkit 正典化**（typeof/filter/sum・`canonicalBuiltinName`）。`swift build` clean、挙動は実機バイナリで検証（XCTest は full Xcode が要る＝ローカル不可・CI 任せ）。多エージェントの敵対レビューで残債 9 件を検出・全修正。**未 push（ユーザ承認待ち、branch `refactor/drop-jq-debt-canonicalize`）**。
-  - **⚠️ 2026-06-14 意味論の確定（破壊的・`破壊的変更OK` 下でユーザ承認可能・要・最終確認）**:
-    - **H2**: `.[]` を null に適用 → **常に空ストリーム**（旧 jq モード既定はエラー）。`.foo`/`.[N]` の null 伝播と一貫。非 null scalar は依然エラー（humane hint 付き）。
-    - **H1**: `//` は **常に false+null を落とす**（jq 意味論・旧既定と同じ）。旧 humane の「`//` は false を残す」は**撤去**。理由＝`??` が nullish（null のみ）を担うので、`//` と `??` を**別物として維持**（同一化すると冗長）。能力の喪失なし。
-- **次セッションの起点**: §5 **(5) Wave1 合成セット**（`groupBy`/`mapValues`/`orderBy`/`toPairs`・`fromPairs` ＋ `.[a:b]` スライス ＋ `range`）。**実行プラン正本 = [docs/plan-wave1.md](plan-wave1.md)**（2026-06-14 計画セッションで作製・設計判断解決済・最初の一歩 = `.[a:b]` スライス）。正典化パターン（§5-4）に乗せる。以降 §5 の (6) 補完エンジン `jig complete` → … の順。並行で新ビジョン spec 起草。
+- **済（2026-06-14 クリーンアップ・セッション ＝ §5 step 1〜4）**: バグ①② 修正・**dual-mode 撤去**（`Mode.swift` 削除・`mode` 引数除去・`--humane`/`JIG_MODE`/pragma 撤去）・**jq 互換負債の一掃**（README ×2 / CLAUDE / glossary / Package.swift / CONTRIBUTING / PR template / run.sh / homebrew / 全コメント）・**es-toolkit 正典化**（typeof/filter/sum・`canonicalBuiltinName`）。`swift build` clean、挙動は実機バイナリで検証（XCTest は full Xcode 必要＝ローカル不可・CI の `build` job が正）。多エージェントの敵対レビューで残債 9 件を検出・全修正。**PR #13 squash-merge 済 → main `1b8f31c`**（user「マージまでOK」承認・CI 全 green）。
+  - **意味論の確定（破壊的・user 承認済＝マージ済）**: **H2** `.[]` を null に適用 → **常に空ストリーム**（旧既定はエラー。`.foo`/`.[N]` の null 伝播と一貫・非 null scalar は依然エラー）。**H1** `//` は **常に false+null を落とす**（jq 意味論）。旧 humane の「`//` は false を残す」は撤去＝`??`（nullish）が担うので `//`/`??` を別物として維持。
+- **済（2026-06-14 仕様セッション ＝ step 5 仕様詰め＋言語設計原則の確定）**: ↓ 4 件を決定・全 merge。**実装はせず仕様のみ**（実行は別セッション）。
+  - **言語設計原則の正本 = [principles.md](principles.md)**（新規・PR #15）: Unix-native／**comma は常にストリーム**（区切りに格下げしない）／jq を忘れる（参照枠は Unix・jq 言及は jq-compat.md に集約）／小さく重ねる／AI 操作前提／診断こそ製品。重み Unix>Claude>予測>js-like。
+  - **`orderBy` 文法決着**: `orderBy(.a, .b)` ＝ comma がキー組（jq `sort_by` 方式・**パーサ変更不要**）。降順は `\| reverse`（方向引数を作らない）。`orderBy(.x, "desc")` は罠 → 診断で拾う。`;` は `range(from;to;step)` の位置別スカラ専用（§2 例も修正済）。
+  - **`range` 評価戦略決着**: step 5 は **eager + 上限ガード**で先行。**真の遅延**（無限・短絡 `first`/`limit`/`until`・`repeat`/`recurse`/`..`）は **§5(12)「評価器 lazy 化」を独立 step** で（eager→lazy は出力互換の非破壊拡張）。
+  - **補完エンジン（§4）= データ駆動**: prefix を入力に部分評価→実フィールド名を返す。完全に効くのは **`jig -i`**（shell 非依存・mac OK）と **file 引数 TAB**。**pipe TAB は static**（補完時にデータ無し）。∴ B→C→A 順が正しい。`jig complete` の出力契約は **B 実装時に設計**（今は尚早＝先送りが正解）。
+- **▶ 次セッションの起点（実装）**: §5 **(5) Wave1 合成セット**。**まず [principles.md](principles.md) と [docs/plan-wave1.md](plan-wave1.md) を読む** → plan の **A（`.[a:b]` スライス）から着手** → B(range) → C(groupBy/mapValues/toPairs/fromPairs) → D(orderBy) → E(docs)。設計判断は全解決済。検証は `swift build` + 実機バイナリ → CI で XCTest（前回同様 push→PR→CI green→squash-merge）。以降 §5 (6) 補完 → (12) 評価器 lazy 化…。
 - **撤去/更新待ち（決定①の波及）= 完了**: `--humane` 実体・README dual-mode 節・`--help` の "jq-compatible"・`docs/jq-compat.md`（SUPERSEDED 化）・CLAUDE の互換記述、いずれも 2026-06-14 で処理済。
 - 正本: 方向性は本ファイル。用語は [docs/glossary.md](glossary.md)、構造/制約/原則は [CLAUDE.md](../CLAUDE.md)。`docs/jq-compat.md` は歴史的参考（SUPERSEDED）。
