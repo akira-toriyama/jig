@@ -182,6 +182,26 @@ object ⇄ `[[key, value], …]`（JS `Object.entries` / `Object.fromEntries`）
 - 所在: `toPairsOf` / `fromPairsOf` — [`Sources/JigCore/Builtins.swift`](../Sources/JigCore/Builtins.swift)
 - **Don't call it:** `to_entries` / `from_entries`（jq の `[{key,value}]` ＝**別形・非 alias**）, entries
 
+### min / max / minBy / maxBy
+配列の**極値**（`jqCompare` 全順序）、空配列は **null**。`min`/`minBy` は同値で
+**先頭**を、`max`/`maxBy` は**末尾**を残す（jq の `<` / `>=` 一致）。`minBy(f)`/
+`maxBy(f)` は射影キー f の極値**要素**（最安アイテム等）。jq alias `min_by`/`max_by`。
+- 所在: `minMaxOf` — [`Sources/JigCore/Builtins.swift`](../Sources/JigCore/Builtins.swift)
+- **Don't call it:** `Math.min`（型混在は数値でなく全順序）, sort して端を取る（min/max が直接）
+
+### uniq / uniqBy
+**順序保持**の重複除去（初出を残す・等価は jq `==`＝object はキー順非依存）。
+`uniqBy(f)` は射影キーで重複判定。
+- 所在: `uniqOf` — [`Sources/JigCore/Builtins.swift`](../Sources/JigCore/Builtins.swift)
+- **Don't call it:** `unique` / `unique_by`（jq は**ソートする** ＝ **別物・非 alias**・jq 最大の不満）, dedupe
+
+### countBy / keyBy / sumBy
+配列の集計。`countBy(f)`＝度数表 `{key: count}`（= `groupBy(f) | mapValues(length)`）、
+`keyBy(f)`＝`{key: record}` ルックアップ（重複は後勝ち）、`sumBy(f)`＝射影合計
+（= `map(f) | sum`・空は null）。キーは groupBy と同じ tostring 強制・初出順。
+- 所在: `countByOf` / `keyByOf` / `sumByOf` — [`Sources/JigCore/Builtins.swift`](../Sources/JigCore/Builtins.swift)
+- **Don't call it:** `INDEX`（jq の keyBy 相当の難解名）, group（countBy は要素でなく**数**を返す）
+
 ---
 
 ## データ model

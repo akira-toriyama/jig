@@ -69,13 +69,35 @@ func evalCall(_ name: String, _ args: [Filter], on input: JigValue,
     case ("fromPairs", 0):
         return [try fromPairsOf(input, span)]
 
+    case ("min", 0):
+        return [try minMaxOf(input, keyer: nil, wantMax: false, span)]
+    case ("max", 0):
+        return [try minMaxOf(input, keyer: nil, wantMax: true, span)]
+    case ("minBy", 1), ("min_by", 1):  // canonical: minBy — `min_by` is the jq alias
+        return [try minMaxOf(input, keyer: args[0], wantMax: false, span)]
+    case ("maxBy", 1), ("max_by", 1):  // canonical: maxBy — `max_by` is the jq alias
+        return [try minMaxOf(input, keyer: args[0], wantMax: true, span)]
+
+    case ("uniq", 0):
+        return [try uniqOf(input, by: nil, span)]
+    case ("uniqBy", 1):
+        return [try uniqOf(input, by: args[0], span)]
+
+    case ("countBy", 1):
+        return [try countByOf(args[0], on: input, span)]
+    case ("keyBy", 1):
+        return [try keyByOf(args[0], on: input, span)]
+    case ("sumBy", 1):
+        return [try sumByOf(args[0], on: input, span)]
+
     default:
         throw EvalError(
             message: "\(name)/\(args.count) is not defined",
             span: span,
-            hint: "implemented builtins: length, keys, keys_unsorted, typeof, not, "
-                + "reverse, sum, empty, map(f), filter(f), has(k), range(n), groupBy(f), "
-                + "mapValues(f), orderBy(f), toPairs, fromPairs (plus the .[a:b] slice) — more on the roadmap")
+            hint: "implemented builtins: length, keys, keys_unsorted, typeof, not, reverse, "
+                + "sum, empty, map(f), filter(f), has(k), range(n), groupBy(f), mapValues(f), "
+                + "orderBy(f), toPairs, fromPairs, min, max, minBy(f), maxBy(f), uniq, uniqBy(f), "
+                + "countBy(f), keyBy(f), sumBy(f) (plus the .[a:b] slice) — more on the roadmap")
     }
 }
 
@@ -245,7 +267,7 @@ private func groupByOf(_ keyer: Filter, on input: JigValue, _ span: SourceSpan) 
     }
     var groups: [(key: String, value: [JigValue])] = []
     for item in items {
-        let key = try groupKeyString(try evaluate(keyer, on: item).first ?? .null, span)
+        let key = try groupKeyString(try evaluate(keyer, on: item).first ?? .null, span, builtin: "groupBy")
         if let i = groups.firstIndex(where: { $0.key == key }) {
             groups[i].value.append(item)
         } else {
@@ -255,17 +277,18 @@ private func groupByOf(_ keyer: Filter, on input: JigValue, _ span: SourceSpan) 
     return .object(groups.map { (key: $0.key, value: .array($0.value)) })
 }
 
-/// Coerce a groupBy key to a string with the interpolation `tostring` rule: a
-/// string stays itself, a number/boolean becomes its compact JSON text (`1` →
-/// "1", `true` → "true"). null/array/object can't be object keys → humane error.
-private func groupKeyString(_ v: JigValue, _ span: SourceSpan) throws -> String {
+/// Coerce a key (for groupBy / countBy / keyBy) to a string with the
+/// interpolation `tostring` rule: a string stays itself, a number/boolean
+/// becomes its compact JSON text (`1` → "1", `true` → "true"). null/array/object
+/// can't be object keys → a humane error naming the `builtin` the user called.
+private func groupKeyString(_ v: JigValue, _ span: SourceSpan, builtin: String) throws -> String {
     switch v {
     case .string(let s): return s
     case .number, .bool: return writeJSON(v, style: .compact)
     default:
         throw EvalError(
-            message: "groupBy key is \(v.typeName)\(shortValue(v)) — keys must be string, number, or boolean", span: span,
-            hint: "object keys are strings; map the key to a scalar first (e.g. groupBy(.tag // \"none\"))")
+            message: "\(builtin) key is \(v.typeName)\(shortValue(v)) — keys must be string, number, or boolean", span: span,
+            hint: "object keys are strings; map the key to a scalar first (e.g. \(builtin)(.tag // \"none\"))")
     }
 }
 
@@ -379,6 +402,103 @@ private func fromPairsOf(_ input: JigValue, _ span: SourceSpan) throws -> JigVal
         }
     }
     return .object(out)
+}
+
+// MARK: Wave 1 aggregation set (docs/roadmap.md §3 — reductions over arrays)
+
+/// `min` / `max` (over the elements) and `minBy(f)` / `maxBy(f)` (over a
+/// projected key) — the extremum of an array by jq's total order, or null when
+/// the array is empty. Tie-break matches jq: `min`/`minBy` keep the FIRST
+/// extremum, `max`/`maxBy` the LAST (jq's `<` vs `>=`).
+private func minMaxOf(_ input: JigValue, keyer: Filter?, wantMax: Bool, _ span: SourceSpan) throws -> JigValue {
+    let what = (wantMax ? "max" : "min") + (keyer == nil ? "" : "By")
+    guard case .array(let items) = input else {
+        throw EvalError(
+            message: "cannot \(what) \(input.typeName)\(shortValue(input))", span: span,
+            hint: "\(what) works on arrays (an empty array → null)")
+    }
+    var best: JigValue?
+    var bestKey: JigValue?
+    for item in items {
+        let key = try keyer.map { try evaluate($0, on: item).first ?? .null } ?? item
+        guard let bk = bestKey else { best = item; bestKey = key; continue }
+        let c = jqCompare(key, bk)
+        if wantMax ? c >= 0 : c < 0 { best = item; bestKey = key }
+    }
+    return best ?? .null
+}
+
+/// `uniq` / `uniqBy(f)` — remove duplicates from an array, PRESERVING ORDER and
+/// keeping the first occurrence. Equality is jq's `==` (order-insensitive for
+/// objects). This is es-toolkit's uniq, NOT jq's `unique`/`unique_by`, which
+/// SORT — deliberately different and not aliased (docs/roadmap.md §3).
+private func uniqOf(_ input: JigValue, by f: Filter?, _ span: SourceSpan) throws -> JigValue {
+    let what = f == nil ? "uniq" : "uniqBy"
+    guard case .array(let items) = input else {
+        throw EvalError(
+            message: "cannot \(what) \(input.typeName)\(shortValue(input))", span: span,
+            hint: "\(what) removes duplicates from an array, keeping input order (jq's `unique` sorts — uniq does not)")
+    }
+    var seen: [JigValue] = []
+    var out: [JigValue] = []
+    for item in items {
+        let key = try f.map { try evaluate($0, on: item).first ?? .null } ?? item
+        if !seen.contains(where: { $0 == key }) {
+            seen.append(key)
+            out.append(item)
+        }
+    }
+    return .array(out)
+}
+
+/// `countBy(f)` — a frequency table `{key: count}` (es-toolkit countBy). Same as
+/// `groupBy(f) | mapValues(length)`, as one builtin. Keys use the groupBy
+/// coercion (string/number/boolean) and first-seen order.
+private func countByOf(_ keyer: Filter, on input: JigValue, _ span: SourceSpan) throws -> JigValue {
+    guard case .array(let items) = input else {
+        throw EvalError(
+            message: "cannot countBy \(input.typeName)\(shortValue(input))", span: span,
+            hint: "countBy tallies the elements of an array into {key: count}")
+    }
+    var counts: [(key: String, value: Int)] = []
+    for item in items {
+        let key = try groupKeyString(try evaluate(keyer, on: item).first ?? .null, span, builtin: "countBy")
+        if let i = counts.firstIndex(where: { $0.key == key }) { counts[i].value += 1 }
+        else { counts.append((key: key, value: 1)) }
+    }
+    return .object(counts.map { (key: $0.key, value: .number(JigNumber(Double($0.value)))) })
+}
+
+/// `keyBy(f)` — index an array of records into a `{key: record}` lookup table
+/// (es-toolkit keyBy; the common "index by id" jq spells with the obscure
+/// INDEX). A duplicate key keeps its first position with the last record.
+private func keyByOf(_ keyer: Filter, on input: JigValue, _ span: SourceSpan) throws -> JigValue {
+    guard case .array(let items) = input else {
+        throw EvalError(
+            message: "cannot keyBy \(input.typeName)\(shortValue(input))", span: span,
+            hint: "keyBy indexes the elements of an array into {key: element}")
+    }
+    var out: [(key: String, value: JigValue)] = []
+    for item in items {
+        let key = try groupKeyString(try evaluate(keyer, on: item).first ?? .null, span, builtin: "keyBy")
+        if let i = out.firstIndex(where: { $0.key == key }) { out[i].value = item }
+        else { out.append((key: key, value: item)) }
+    }
+    return .object(out)
+}
+
+/// `sumBy(f)` — the projected sum `map(f) | sum` as one builtin (jq has no
+/// `sum`, so this is the `map(.x) | add` idiom). Reuses `addValues`, so it also
+/// concatenates strings/arrays; an empty input sums to null (like `sum`).
+private func sumByOf(_ f: Filter, on input: JigValue, _ span: SourceSpan) throws -> JigValue {
+    let elements = try evaluate(.iterate(optional: false, span: span), on: input)
+    var acc: JigValue = .null
+    for e in elements {
+        for v in try evaluate(f, on: e) {
+            acc = try addValues(acc, v, span)
+        }
+    }
+    return acc
 }
 
 /// Short value rendering for diagnostics — " (null)" / " (3)" / "" when long.

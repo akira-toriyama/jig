@@ -226,9 +226,12 @@ func canonicalBuiltinName(_ name: String) -> String {
     case "type": return "typeof"
     case "add": return "sum"
     case "map_values": return "mapValues"
+    case "min_by": return "minBy"
+    case "max_by": return "maxBy"
     // groupBy / orderBy / toPairs / fromPairs have no jq alias to fold:
     // `group_by` (array-of-arrays) and `to_entries` are a DIFFERENT shape and
-    // intentionally not aliased; `sort_by`/`sortBy` is a Wave 2 alias.
+    // intentionally not aliased; `sort_by`/`sortBy` is a Wave 2 alias; jq's
+    // `unique`/`unique_by` SORT, so uniq/uniqBy are not their aliases.
     default: return name
     }
 }
@@ -255,6 +258,20 @@ private func jsCall(_ name: String, _ args: [Filter], subject: String) -> String
     case ("orderBy", 1): return "[...\(subject)].sort(/* by \(render(args[0])) */)"
     case ("toPairs", 0): return "Object.entries(\(subject))"
     case ("fromPairs", 0): return "Object.fromEntries(\(subject))"
+    case ("min", 0): return "Math.min(...\(subject))"
+    case ("max", 0): return "Math.max(...\(subject))"
+    case ("minBy", 1), ("min_by", 1):
+        return "\(subject).reduce((a, b) => (\(jsChain(flattenPipe(args[0]), subject: "b"))) < (\(jsChain(flattenPipe(args[0]), subject: "a"))) ? b : a)"
+    case ("maxBy", 1), ("max_by", 1):
+        return "\(subject).reduce((a, b) => (\(jsChain(flattenPipe(args[0]), subject: "b"))) >= (\(jsChain(flattenPipe(args[0]), subject: "a"))) ? b : a)"
+    // Set dedups by `===` (reference); jig's uniq is jq `==` (deep, key-order-
+    // insensitive), so the caveat keeps the object case honest — like the
+    // `/* … */` notes on orderBy/range. (`≈ JS` is approximate by contract.)
+    case ("uniq", 0): return "[...new Set(\(subject))] /* value-equal (jq ==) */"
+    case ("uniqBy", 1): return "\(subject)/* uniqBy(\(render(args[0]))) */"
+    case ("countBy", 1): return "\(subject)/* countBy(\(render(args[0]))) */"
+    case ("keyBy", 1): return "Object.fromEntries(\(subject).map(x => [\(jsChain(flattenPipe(args[0]), subject: "x")), x]))"
+    case ("sumBy", 1): return "\(subject).reduce((a, x) => a + \(jsChain(flattenPipe(args[0]), subject: "x")), 0)"
     default: return "\(subject)/* \(name) */"
     }
 }

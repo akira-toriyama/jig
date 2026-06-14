@@ -115,11 +115,12 @@ arithmetic `+ - * / %` (incl. `"s"*n`, `arr-arr`, `obj+obj` merge / `obj*obj`
 deep-merge, `str/str` split), comparison `== != < <= > >=` (jq's cross-type
 total order), logical `and` / `or`, unary minus `-x`, and builtins
 `length keys keys_unsorted typeof not reverse sum empty map(f) filter(f) has(k)`
-plus the Wave 1 composition set
-`range(n) groupBy(f) mapValues(f) orderBy(f) toPairs fromPairs`
-(so `countBy` is just `groupBy(f) | mapValues(length)`; descending is
-`orderBy(f) | reverse`). jq aliases `type` / `add` / `select` / `map_values` are
-accepted. Subcommands `jig explain` /
+plus the Wave 1 composition + aggregation set
+`range(n) groupBy(f) mapValues(f) orderBy(f) toPairs fromPairs min max minBy(f)
+maxBy(f) uniq uniqBy(f) countBy(f) keyBy(f) sumBy(f)`
+(descending is `orderBy(f) | reverse`; `uniq` keeps order where jq's `unique`
+sorts). jq aliases `type` / `add` / `select` / `map_values` / `min_by` / `max_by`
+are accepted. Subcommands `jig explain` /
 `jig check`. Full surface and roadmap: [docs/roadmap.md](docs/roadmap.md).
 
 ## Input / Output

@@ -185,4 +185,27 @@ final class ExplainTests: XCTestCase {
         XCTAssertEqual(jsEquivalent(try! parseFilter("toPairs")), "Object.entries(input)")
         XCTAssertEqual(jsEquivalent(try! parseFilter("fromPairs")), "Object.fromEntries(input)")
     }
+
+    // MARK: Wave 1 aggregation set
+
+    func testRenderAggregationCanonical() {
+        // `min_by` / `max_by` are the only jq aliases here; uniq/countBy/keyBy/
+        // sumBy are canonical-only.
+        XCTAssertEqual(render(try! parseFilter("min_by(.k)")), "minBy(.k)")
+        XCTAssertEqual(render(try! parseFilter("max_by(.k)")), "maxBy(.k)")
+        XCTAssertEqual(render(try! parseFilter("uniqBy(.t)")), "uniqBy(.t)")
+        XCTAssertEqual(render(try! parseFilter("countBy(.g)")), "countBy(.g)")
+    }
+
+    func testJsAggregationBuiltins() {
+        XCTAssertEqual(jsEquivalent(try! parseFilter("min")), "Math.min(...input)")
+        XCTAssertEqual(jsEquivalent(try! parseFilter("max")), "Math.max(...input)")
+        // The `/* value-equal (jq ==) */` caveat flags that JS Set is `===` but
+        // jig's uniq dedups by jq `==` (deep) — honest for the object case.
+        XCTAssertEqual(jsEquivalent(try! parseFilter("uniq")), "[...new Set(input)] /* value-equal (jq ==) */")
+        XCTAssertEqual(jsEquivalent(try! parseFilter("keyBy(.id)")),
+                       "Object.fromEntries(input.map(x => [x.id, x]))")
+        XCTAssertEqual(jsEquivalent(try! parseFilter("sumBy(.x)")),
+                       "input.reduce((a, x) => a + x.x, 0)")
+    }
 }
