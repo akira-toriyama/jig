@@ -27,32 +27,32 @@ roadmap §5(5) のちょうど7つに絞る。`countBy`/`keyBy`/`sumBy`/`min`/`m
 ## 解決済みの設計判断（実行セッションはこれに従えばよい）
 
 <details>
-<summary><b>① builtin の引数は <code>;</code> 区切り（コンマでない）— roadmap の例と要reconcile</b></summary>
+<summary><b>① comma は常にストリーム（区切りに格下げしない）— <a href="principles.md">principles.md §1</a></b></summary>
 
-`FilterParser.parseIdentifierPrimary`（現状）は `f(a; b)` の **`;` 区切り**で引数を取る
-（`map(f)`・`has(k)` と同じ）。`f(a, b)` の `,` は **1引数のコンマストリーム**になる。
+**確定（2026-06-14 user）**: `,` は jig 全体でただ一つの意味＝**ストリーム連結**。引数
+「区切り」に格下げして標準化するのは**悪手**（comma の唯一意味＝合成可能性が壊れる）。
 
-→ roadmap §2 表の `orderBy(.score, "desc")` は **JS 風の略記**であって、jig の実文法では
-`orderBy(.score; "desc")` になる。**決定: `;` 区切りで統一**（全 builtin と一貫・予測可能 §7-2）。
-実行時に roadmap §2/§5 の例の `,` を `;` へ直す（or 「例は JS 風」と注記）。**この1点だけ
-user 最終確認の価値あり**（コンマを特別扱いして lodash 風にするより `;` 統一を推奨）。
+- **多値が要る builtin** は comma-ストリームを **food** する（`orderBy(.a, .b)` ＝
+  `(.a, .b)` のストリームを**キー組**として食う）。`parsePipe` が `.a, .b` を comma で
+  **1引数**に取る現状のままで成立＝**パーサ変更不要**。
+- **位置で役割が違う別スカラ引数**にだけ `;`（`range(from; to; step)`）。comma だと
+  `range(1, 3)` が「ストリーム `1,3` を引数に」＝別物になるため。
+- 使い分けは機械的: その引数位置が **ストリームを取るか / 位置別スカラを取るか**。
 </details>
 
 <details>
-<summary><b>② <code>orderBy</code> の多キー・方向グラマー</b></summary>
+<summary><b>② <code>orderBy</code> = comma-tuple キー ＋ <code>| reverse</code>（jq <code>sort_by</code> 方式）</b></summary>
 
-`;` 区切り前提での確定文法（Wave1）:
-
-- `orderBy(keyFilter)` … 単一キー昇順
-- `orderBy(.a; .b; .c)` … 多キー、**全昇順**（先頭キーが優先）
-- 末尾引数が**文字列リテラル `"asc"`/`"desc"`** のときは**全キーに適用**する方向指定:
-  `orderBy(.score; "desc")` / `orderBy(.a; .b; "desc")`
-- **キーごとに別方向**（lodash の `orders` 配列）は **Wave2 以降**（`;` 文法では煩雑）。
-
-判定: 各引数を評価 → 各要素に keyFilter を適用しキー値を得る → jq 全順序（`jqCompare`）で
-安定ソート。`"asc"/"desc"` は **キーでなく方向**として末尾でのみ解釈。
-キー値が複数出力/空の要素は… **決定: keyFilter の第1出力をキーに**（空ならその要素のキーは
-`null` 扱い＝先頭側）。jq `sort_by` と整合。
+- 引数は **1個の filter**。各要素で評価して出た**ストリームをキー組**にする
+  （配列キーを `jqCompare` 全順序で安定ソート）。**パーサ変更不要**。
+  - `orderBy(.age)` … 単一キー
+  - `orderBy(.age, .name)` … 多キー（comma はストリームのまま＝§1）
+- **降順は新引数でなく合成**: `orderBy(.x) | reverse`（全キー降順）。`;` は orderBy では
+  使わない。**per-key 混在方向は将来課題**。
+- キー値が空の要素はキー `null` 扱い（先頭側）。
+- **罠＝診断で拾う**: `orderBy(.x, "desc")` は「`.x` と**定数** `"desc"` の2キーソート」＝
+  降順にならない。jig は「string リテラルをソートキーにしている。降順は `| reverse`」と
+  **humane に注記**（§5 診断＝製品。[principles.md §5](principles.md)）。
 </details>
 
 <details>
@@ -135,18 +135,22 @@ jig の評価器は eager（`[JigValue]` を返す）なので range も**有限
 5. **Tests**: BuiltinsTests に各 builtin ＋ **合成 E2E**（`groupBy(.g) | mapValues(length)` = countBy 相当・
    `groupBy | toPairs` 往復）。golden は jig 仕様（jq オラクルでない）。
 
-### D. `orderBy`（②のグラマー）
-1. **evalCall**: 可変長引数。末尾 `"asc"/"desc"` 判定 → key-filters を残す → 安定多キーソート
-   （`jqCompare` 利用、`reverse` で desc）。
-2. **jsCall**: best-effort（`[...x].sort(...)`）。
-3. **Tests**: 単一/多キー/desc/安定性/空・非配列エラー。
+### D. `orderBy`（②: comma-tuple ＋ `| reverse`）
+1. **evalCall**: 引数1個。各要素で arg を評価 → **出力ストリーム＝キー組（配列）** →
+   `jqCompare` 全順序で**安定ソート**。方向引数は無し（降順は `| reverse` で合成）。
+2. **診断**: arg のキーに**文字列リテラル**が混じる場合（`orderBy(.x, "desc")` の "desc"）は
+   humane 注記（「定数キー＝降順なら `| reverse`」）。②の罠対策。
+3. **jsCall**: best-effort（`[...x].sort(...)`）。
+4. **Tests**: 単一/多キー（comma-tuple）/`| reverse` で降順/安定性/空・非配列エラー/
+   `orderBy(.x, "desc")` の診断。
 
 ### E. docs / 仕上げ
 - [README.md](../README.md) / [README.ja.md](../README.ja.md) の builtin 一覧に
   `range groupBy mapValues orderBy toPairs fromPairs` ＋ `.[a:b]` を追加（正典名で）。
 - `--help`（[Main.swift](../Sources/JigApp/Main.swift)）の FILTER/BUILTINS ブロック更新。
 - [glossary.md](glossary.md) に必要なら groupBy(≠group_by)/orderBy 等の term。
-- [roadmap.md](roadmap.md) §5(5) を ✅、§8 引き継ぎ更新、§2 例の `,`→`;` 修正（①）。
+- [roadmap.md](roadmap.md) §5(5) を ✅、§8 引き継ぎ更新、§2 例の `orderBy(.score, "desc")`
+  → `orderBy(.score) | reverse` 修正（②、comma=ストリーム維持）。
 - sample/orders.json は `category` 付き配列（`groupBy(.category)` 映え）。他に欲しければ足す。
 
 ---
@@ -160,7 +164,8 @@ jig の評価器は eager（`[JigValue]` を返す）なので range も**有限
 
 ## リスク / 注意
 
-- **`;` vs `,`**（①）= 唯一の要 user 確認ポイント。実装前に reconcile。
+- **comma=ストリームの不変条件**（①・[principles.md §1](principles.md)）を崩さない。orderBy は
+  comma-tuple、`;` は range 専用。`,` を引数区切りに格下げしない。
 - **eager range の OOM**（⑤ ガードで対処）。評価器の lazy 化は別 roadmap（深さ上限 + fuzzing と同枠）。
 - **mapValues の空出力でキー削除**（jq `|=` 整合）は直感に反しうる → テストとコメントで固定。
 - 全変更 build green 維持・各 builtin は実機バイナリで先に挙動確認してから golden 化。

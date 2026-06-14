@@ -160,6 +160,8 @@ Verbose tracing is env-var-only (family convention): `JIG_DEBUG=1 jig … `
 writes a trace to stderr and `/tmp/jig.log`. There is no `--debug` flag.
 
 See [CLAUDE.md](CLAUDE.md) for architecture and constraints,
+[docs/principles.md](docs/principles.md) for the language-design principles
+(Unix-native, comma is always a stream, compose small, diagnostics are the product),
 [docs/roadmap.md](docs/roadmap.md) for direction and the builtin vocabulary,
 [docs/glossary.md](docs/glossary.md) for canonical terminology,
 [docs/commit-convention.md](docs/commit-convention.md) for the commit/release

@@ -154,7 +154,9 @@ swift test            # full Xcode (XCTest) が必要。CI が全 PR で実行
 verbose trace は環境変数のみ（家風）: `JIG_DEBUG=1 jig …` で stderr と
 `/tmp/jig.log` に trace が出る。`--debug` flag は無い。
 
-アーキテクチャと制約は [CLAUDE.md](CLAUDE.md)、方針と builtin 語彙は
+アーキテクチャと制約は [CLAUDE.md](CLAUDE.md)、言語設計原則
+（Unix-native・comma は常にストリーム・小さく重ねる・診断＝製品）は
+[docs/principles.md](docs/principles.md)、方針と builtin 語彙は
 [docs/roadmap.md](docs/roadmap.md)、正規用語は
 [docs/glossary.md](docs/glossary.md)、コミット/リリースの流れは
 [docs/commit-convention.md](docs/commit-convention.md)、そして
