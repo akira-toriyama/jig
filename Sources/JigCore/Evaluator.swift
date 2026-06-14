@@ -129,6 +129,31 @@ public func evaluate(_ filter: Filter, on input: JigValue) throws -> [JigValue] 
     case .call(let name, let args, let span):
         return try evalCall(name, args, on: input, span: span)
 
+    case .variable(let name, let span):
+        // A $var is only ever bound by `reduce`, which substitutes its value in
+        // before this node could be evaluated — so reaching here means it is
+        // unbound in the current scope.
+        throw EvalError(
+            message: "$\(name) is not defined",
+            span: span,
+            hint: "a $variable is bound by `reduce … as $\(name) (…)`; there is none in scope here")
+
+    case .reduce(let source, let varName, let initial, let update, _):
+        // jq runs ONE independent fold per INIT output (an empty INIT → no
+        // output). Within a fold, each SOURCE value binds $varName (by
+        // substitution) and UPDATE runs with the accumulator as `.`, its LAST
+        // output becoming the new accumulator (an empty UPDATE → null). SOURCE
+        // depends only on the input, so it is evaluated once and reused.
+        let sourceValues = try evaluate(source, on: input)
+        var results: [JigValue] = []
+        for var acc in try evaluate(initial, on: input) {
+            for v in sourceValues {
+                acc = try evaluate(substitute(update, varName, v), on: acc).last ?? .null
+            }
+            results.append(acc)
+        }
+        return results
+
     case .binary(let op, let lhs, let rhs, let span):
         // `and` / `or` short-circuit on the left and yield booleans.
         if op.isLogical {
@@ -280,6 +305,50 @@ func truthy(_ v: JigValue) -> Bool {
 private func preview(_ v: JigValue) -> String {
     let s = writeJSON(v, style: .compact)
     return s.count <= 24 ? " (\(s))" : ""
+}
+
+/// Replace every free reference to `$name` in `f` with the constant `value` —
+/// the binding mechanism for `reduce … as $name (…)`. Recurses through the whole
+/// tree, but does NOT descend into a nested `reduce`'s UPDATE when that reduce
+/// re-binds the SAME name (lexical shadowing): there the inner `$name` belongs
+/// to the inner binder. (The inner SOURCE/INIT stay in the outer scope, so they
+/// are still substituted.)
+func substitute(_ f: Filter, _ name: String, _ value: JigValue) -> Filter {
+    func sub(_ g: Filter) -> Filter { substitute(g, name, value) }
+    switch f {
+    case .identity, .field, .index, .slice, .iterate, .literal:
+        return f
+    case .variable(let n, _):
+        return n == name ? .literal(value) : f
+    case .pipe(let a, let b):
+        return .pipe(sub(a), sub(b))
+    case .comma(let a, let b):
+        return .comma(sub(a), sub(b))
+    case .alternative(let a, let b, let s):
+        return .alternative(sub(a), sub(b), span: s)
+    case .nullish(let a, let b, let s):
+        return .nullish(sub(a), sub(b), span: s)
+    case .call(let nm, let args, let s):
+        return .call(name: nm, args: args.map(sub), span: s)
+    case .reduce(let src, let v, let ini, let upd, let s):
+        return .reduce(source: sub(src), varName: v, initial: sub(ini),
+                       update: v == name ? upd : sub(upd), span: s)
+    case .binary(let op, let a, let b, let s):
+        return .binary(op, sub(a), sub(b), span: s)
+    case .neg(let inner, let s):
+        return .neg(sub(inner), span: s)
+    case .arrayConstruct(let inner):
+        return .arrayConstruct(inner.map(sub))
+    case .objectConstruct(let entries):
+        return .objectConstruct(entries.map {
+            ObjectEntry(key: sub($0.key), value: sub($0.value), keySpan: $0.keySpan)
+        })
+    case .stringInterp(let parts):
+        return .stringInterp(parts.map {
+            if case .interp(let g) = $0 { return .interp(sub(g)) }
+            return $0
+        })
+    }
 }
 
 /// Normalize a `.[low:high]` slice against a collection of `count` elements,

@@ -81,6 +81,15 @@ private func jsChain(_ stages: [Filter], subject: String) -> String {
             return "(\(jsChain(flattenPipe(a), subject: expr)) ?? \(jsChain(flattenPipe(b), subject: expr)))"
         case .call(let name, let args, _):
             expr = jsCall(name, args, subject: expr)
+        case .variable(let name, _):
+            // A $var ≈ a JS binding of the same name (no `$`); inside a reduce
+            // analogy it's the callback's element parameter.
+            expr = name
+        case .reduce(let source, let varName, let initial, let update, _):
+            let src = jsChain(flattenPipe(source), subject: expr)
+            let ini = jsChain(flattenPipe(initial), subject: expr)
+            let upd = jsChain(flattenPipe(update), subject: "acc")
+            expr = "\(src).reduce((acc, \(varName)) => \(upd), \(ini))"
         case .binary(let op, let a, let b, _):
             // Both operands run on the same input (the running subject).
             let ja = jsChain(flattenPipe(a), subject: expr)
@@ -321,6 +330,8 @@ private func containsIterate(_ filter: Filter) -> Bool {
         return containsIterate(inner)
     case .call(_, let args, _):
         return args.contains(where: containsIterate)
+    case .reduce(let source, _, let initial, let update, _):
+        return containsIterate(source) || containsIterate(initial) || containsIterate(update)
     case .arrayConstruct(let inner):
         return inner.map(containsIterate) ?? false
     case .objectConstruct(let entries):
@@ -379,6 +390,11 @@ private func phrase(_ filter: Filter) -> String {
         return args.isEmpty
             ? "call \(canon)"
             : "call \(canon) with (\(args.map(render).joined(separator: "; ")))"
+    case .variable(let name, _):
+        return "use the bound variable $\(name)"
+    case .reduce(let source, let varName, let initial, let update, _):
+        return "fold (\(render(source))) into an accumulator (start: \(render(initial))), "
+            + "binding each value as $\(varName) and updating with (\(render(update)))"
     case .binary(let op, let a, let b, _):
         let lead: String
         switch op {
@@ -440,6 +456,10 @@ public func render(_ filter: Filter) -> String {
         // normalize a jq alias to the canonical builtin name.
         let canon = canonicalBuiltinName(name)
         return args.isEmpty ? canon : "\(canon)(\(args.map(render).joined(separator: "; ")))"
+    case .variable(let name, _):
+        return "$\(name)"
+    case .reduce(let source, let varName, let initial, let update, _):
+        return "reduce \(renderAtom(source)) as $\(varName) (\(render(initial)); \(render(update)))"
     case .binary(let op, let a, let b, _):
         // Parenthesize operands that are themselves infix/compound, so the
         // rendered text re-parses to the SAME tree (precedence-faithful).
@@ -497,9 +517,10 @@ private func renderObjectEntry(_ e: ObjectEntry) -> String {
 private func renderAtom(_ filter: Filter) -> String {
     switch filter {
     case .identity, .field, .index, .slice, .iterate, .literal, .call,
-         .arrayConstruct, .objectConstruct, .stringInterp:
+         .variable, .reduce, .arrayConstruct, .objectConstruct, .stringInterp:
         // A `"…"` (interpolated or not) is self-delimiting — an atom that needs
-        // no parentheses, like a literal.
+        // no parentheses, like a literal. `$x` is one, and `reduce(…)` ends in a
+        // closing `)`, so both stand alone.
         return render(filter)
     case .pipe, .comma, .alternative, .nullish, .binary, .neg:
         return "(\(render(filter)))"

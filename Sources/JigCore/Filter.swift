@@ -50,6 +50,18 @@ public indirect enum Filter: Sendable, Equatable {
     /// A builtin/function call: `length`, `map(f)`, `has(k)`. Arguments are
     /// `;`-separated filters.
     case call(name: String, args: [Filter], span: SourceSpan)
+    /// `$x` — a bound variable reference. The only binder so far is `reduce`,
+    /// which substitutes the bound value in before evaluating, so a `.variable`
+    /// that reaches the evaluator is unbound (a located error).
+    case variable(name: String, span: SourceSpan)
+    /// `reduce SOURCE as $x (INIT; UPDATE)` — fold the SOURCE stream into an
+    /// accumulator. jq runs ONE independent fold per INIT output (so an empty
+    /// INIT yields no output, and N INIT outputs yield N results); within a
+    /// fold, each SOURCE value binds `$x` and UPDATE runs with the accumulator
+    /// as `.`, its LAST output becoming the new accumulator (an empty UPDATE
+    /// makes it null). Variable binding is done by substitution into UPDATE, so
+    /// lexical shadowing is respected.
+    case reduce(source: Filter, varName: String, initial: Filter, update: Filter, span: SourceSpan)
     /// An infix operator: arithmetic (`+ - * / %`), comparison
     /// (`== != < <= > >=`), or logical (`and` / `or`). Both sides are
     /// filters; arithmetic/comparison form a cartesian product of the two

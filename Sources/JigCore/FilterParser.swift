@@ -310,6 +310,13 @@ private struct FilterParser {
             return try parseObjectConstruct()
         case UInt8(ascii: "-"), UInt8(ascii: "0")...UInt8(ascii: "9"):
             return .literal(.number(try parseNumberLiteral()))
+        case UInt8(ascii: "$"):
+            let vStart = pos
+            pos += 1
+            guard let name = scanIdent() else {
+                throw unexpected("after \"$\" — expected a variable name")
+            }
+            return .variable(name: name, span: SourceSpan(vStart, pos))
         case UInt8(ascii: "a")...UInt8(ascii: "z"),
              UInt8(ascii: "A")...UInt8(ascii: "Z"),
              UInt8(ascii: "_"):
@@ -329,6 +336,7 @@ private struct FilterParser {
         case "true": return .literal(.bool(true))
         case "false": return .literal(.bool(false))
         case "null": return .literal(.null)
+        case "reduce": return try parseReduce(start: start)
         default: break
         }
         var args: [Filter] = []
@@ -347,6 +355,45 @@ private struct FilterParser {
             pos += 1
         }
         return .call(name: name, args: args, span: SourceSpan(start, pos))
+    }
+
+    /// `reduce SOURCE as $x (INIT; UPDATE)` — the only binding form so far.
+    /// SOURCE is a postfix term (e.g. `.[]`, `.items[]`, `range(n)`); `$x` binds
+    /// each of its outputs while UPDATE folds. `start` is the `reduce` offset.
+    private mutating func parseReduce(start: Int) throws -> Filter {
+        skipWhitespace()
+        let source = try parsePostfix()
+        skipWhitespace()
+        guard scanIdent() == "as" else {
+            throw unexpected("after reduce's source — expected `as $variable`")
+        }
+        skipWhitespace()
+        guard peek() == UInt8(ascii: "$") else {
+            throw unexpected("after `as` — expected a `$variable`")
+        }
+        pos += 1
+        guard let varName = scanIdent() else {
+            throw unexpected("after `$` — expected a variable name")
+        }
+        skipWhitespace()
+        guard peek() == UInt8(ascii: "(") else {
+            throw unexpected("after reduce's `$\(varName)` — expected `(init; update)`")
+        }
+        pos += 1
+        let initial = try parsePipe()
+        skipWhitespace()
+        guard peek() == UInt8(ascii: ";") else {
+            throw unexpected("in reduce(init; update) — expected `;` between init and update")
+        }
+        pos += 1
+        let update = try parsePipe()
+        skipWhitespace()
+        guard peek() == UInt8(ascii: ")") else {
+            throw unexpected("in reduce(init; update) — expected `)`")
+        }
+        pos += 1
+        return .reduce(source: source, varName: varName, initial: initial,
+                       update: update, span: SourceSpan(start, pos))
     }
 
     // MARK: construction
@@ -796,7 +843,7 @@ private struct FilterParser {
             return FilterParseError(
                 message: "unexpected \"$\" \(context)",
                 span: span,
-                hint: "$variables are not implemented yet (on the roadmap) — also check the shell didn't expand $name before jig saw it (use single quotes)")
+                hint: "a $variable (bound by `reduce … as $x`) is only valid where a value is expected — jig has no dynamic `.[$x]` indexing yet. Also check your shell didn't expand $name first (use single quotes)")
         case UInt8(ascii: "="):
             // `=>` is the JS arrow — a near-universal reflex for JS/TS users
             // (and LLMs) reaching for `filter(u => u.active)`. jig's builtins

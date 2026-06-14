@@ -203,6 +203,8 @@ enum JigApp {
           a/b a%b  -a        obj+obj merge / obj*obj deep-merge, str/str split)
           a==b a<b …       comparison == != < <= > >=  (jq's cross-type order)
           a and b  a or b  logical (short-circuit, boolean result)
+          reduce S as $x (init; update)   fold S's stream into one value
+                             ($x binds each value; . is the accumulator)
           # ...            comment to end of line
 
         BUILTINS (v0)
