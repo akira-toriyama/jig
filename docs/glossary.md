@@ -216,6 +216,13 @@ comma-ストリーム（`pick("a", "b")` / 動的に `pick(.fields[])`）。
 - 所在: `pickOf` / `omitOf` — [`Sources/JigCore/Builtins.swift`](../Sources/JigCore/Builtins.swift)
 - **Don't call it:** jq `pick(pathexp)`（jq は**パス式**・jig は**キー文字列**＝別シェイプ）, `{a,b}` 構築（こちらは欠損で null を作る・pick は欠損をスキップ）, `pickBy`/`omitBy`（述語版・別物）
 
+### pickBy / omitBy
+`filter` のオブジェクト版。**各値に述語 f を適用**（`.` ＝ 値、`mapValues` と同じ）し、
+真の entry を残す（pickBy）／落とす（omitBy）。順序保持・空出力は falsy 扱い。
+`omitBy(. == null)` で null 値の entry を一掃。非 object はエラー。
+- 所在: `pickByOf` — [`Sources/JigCore/Builtins.swift`](../Sources/JigCore/Builtins.swift)
+- **Don't call it:** `pick`/`omit`（キー名で選ぶ・こちらは値の述語）, jq `with_entries(select(...))`（同義の難解形）, `compact`（null 落としは `omitBy(. == null)`・将来別 builtin 候補）
+
 ---
 
 ## データ model

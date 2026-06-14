@@ -118,7 +118,7 @@ total order), logical `and` / `or`, unary minus `-x`, and builtins
 plus the Wave 1 composition + aggregation set
 `range(n) groupBy(f) mapValues(f) orderBy(f) toPairs fromPairs min max minBy(f)
 maxBy(f) uniq uniqBy(f) countBy(f) keyBy(f) sumBy(f) mean meanBy(f) pick(keys)
-omit(keys)`
+omit(keys) pickBy(f) omitBy(f)`
 (descending is `orderBy(f) | reverse`; `uniq` keeps order where jq's `unique`
 sorts). jq aliases `type` / `add` / `select` / `map_values` / `min_by` / `max_by`
 / `avg` / `avgBy` are accepted. Subcommands `jig explain` /

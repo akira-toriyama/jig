@@ -308,4 +308,18 @@ final class BuiltinsTests: XCTestCase {
         XCTAssertEqual(try run(#"omit("nope")"#, on: #"{"a":1}"#), [#"{"a":1}"#])
         XCTAssertThrowsError(try run(#"omit("a")"#, on: "5"))
     }
+
+    func testPickByOmitBy() throws {
+        // The object analogue of filter: a predicate on each value, order kept.
+        XCTAssertEqual(try run("pickBy(. > 1)", on: #"{"a":1,"b":2,"c":3}"#), [#"{"b":2,"c":3}"#])
+        XCTAssertEqual(try run("omitBy(. > 1)", on: #"{"a":1,"b":2,"c":3}"#), [#"{"a":1}"#])
+        // jq truthiness: 0 is truthy, only null/false are falsy.
+        XCTAssertEqual(try run("pickBy(.)", on: #"{"a":0,"b":null,"c":false,"d":1}"#), [#"{"a":0,"d":1}"#])
+        // A common shape: drop null-valued entries.
+        XCTAssertEqual(try run("omitBy(. == null)", on: #"{"a":1,"b":null,"c":3}"#), [#"{"a":1,"c":3}"#])
+        // An empty predicate output is falsy (pickBy drops, omitBy keeps).
+        XCTAssertEqual(try run("pickBy(empty)", on: #"{"a":1}"#), ["{}"])
+        XCTAssertEqual(try run("omitBy(empty)", on: #"{"a":1}"#), [#"{"a":1}"#])
+        XCTAssertThrowsError(try run("pickBy(.)", on: "[1,2]"))   // non-object
+    }
 }

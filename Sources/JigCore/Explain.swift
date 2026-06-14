@@ -279,6 +279,10 @@ private func jsCall(_ name: String, _ args: [Filter], subject: String) -> String
         return "(\(subject).reduce((a, x) => a + \(jsChain(flattenPipe(args[0]), subject: "x")), 0) / \(subject).length)"
     case ("pick", 1): return "\(subject)/* pick(\(render(args[0]))) */"
     case ("omit", 1): return "\(subject)/* omit(\(render(args[0]))) */"
+    case ("pickBy", 1):
+        return "Object.fromEntries(Object.entries(\(subject)).filter(([k, v]) => \(jsChain(flattenPipe(args[0]), subject: "v"))))"
+    case ("omitBy", 1):
+        return "Object.fromEntries(Object.entries(\(subject)).filter(([k, v]) => !(\(jsChain(flattenPipe(args[0]), subject: "v")))))"
     default: return "\(subject)/* \(name) */"
     }
 }
