@@ -89,6 +89,15 @@ func evalCall(_ name: String, _ args: [Filter], on input: JigValue,
         return [try keyByOf(args[0], on: input, span)]
     case ("sumBy", 1):
         return [try sumByOf(args[0], on: input, span)]
+    case ("mean", 0), ("avg", 0):  // canonical: mean — `avg` is the colloquial alias
+        return [try meanOf(input, keyer: nil, span)]
+    case ("meanBy", 1), ("avgBy", 1):  // canonical: meanBy — `avgBy` is the alias
+        return [try meanOf(input, keyer: args[0], span)]
+
+    case ("pick", 1):
+        return [try pickOf(args[0], on: input, span)]
+    case ("omit", 1):
+        return [try omitOf(args[0], on: input, span)]
 
     default:
         throw EvalError(
@@ -97,7 +106,8 @@ func evalCall(_ name: String, _ args: [Filter], on input: JigValue,
             hint: "implemented builtins: length, keys, keys_unsorted, typeof, not, reverse, "
                 + "sum, empty, map(f), filter(f), has(k), range(n), groupBy(f), mapValues(f), "
                 + "orderBy(f), toPairs, fromPairs, min, max, minBy(f), maxBy(f), uniq, uniqBy(f), "
-                + "countBy(f), keyBy(f), sumBy(f) (plus the .[a:b] slice) — more on the roadmap")
+                + "countBy(f), keyBy(f), sumBy(f), mean, meanBy(f), pick(keys), omit(keys) "
+                + "(plus the .[a:b] slice) — more on the roadmap")
     }
 }
 
@@ -499,6 +509,78 @@ private func sumByOf(_ f: Filter, on input: JigValue, _ span: SourceSpan) throws
         }
     }
     return acc
+}
+
+/// `mean` (over the elements) / `meanBy(f)` (over a projected key) — the
+/// arithmetic mean of an array's numbers, or null when there is nothing to
+/// average (empty array, or every projected key empty). Non-numeric values are
+/// a humane error. jq aliases `avg` / `avgBy`.
+private func meanOf(_ input: JigValue, keyer: Filter?, _ span: SourceSpan) throws -> JigValue {
+    let what = keyer == nil ? "mean" : "meanBy"
+    guard case .array(let items) = input else {
+        throw EvalError(
+            message: "cannot \(what) \(input.typeName)\(shortValue(input))", span: span,
+            hint: "\(what) averages the numbers of an array (empty → null)")
+    }
+    var sum = 0.0
+    var count = 0
+    for item in items {
+        for v in try keyer.map({ try evaluate($0, on: item) }) ?? [item] {
+            guard case .number(let n) = v else {
+                throw EvalError(
+                    message: "\(what) needs numbers, got \(v.typeName)\(shortValue(v))", span: span,
+                    hint: "\(what) averages numeric values")
+            }
+            sum += n.double
+            count += 1
+        }
+    }
+    return count == 0 ? .null : .number(JigNumber(sum / Double(count)))
+}
+
+/// `pick(keys)` — keep only the named keys of an object, in the order they are
+/// requested (es-toolkit pick). `keys` is a comma-stream of strings (`pick("a",
+/// "b")`, or a computed `pick(.wanted[])`); a missing key is skipped (not set to
+/// null), a duplicate request keeps the first. NOTE: this is key-string
+/// selection — distinct from jq's `pick(pathexp)`, which takes path expressions.
+private func pickOf(_ keyFilter: Filter, on input: JigValue, _ span: SourceSpan) throws -> JigValue {
+    guard case .object = input else {
+        throw EvalError(
+            message: "cannot pick from \(input.typeName)\(shortValue(input))", span: span,
+            hint: "pick selects keys from an object — pick(\"a\", \"b\")")
+    }
+    var out: [(key: String, value: JigValue)] = []
+    for k in try evaluate(keyFilter, on: input) {
+        guard case .string(let ks) = k else {
+            throw EvalError(
+                message: "pick key must be a string, got \(k.typeName)\(shortValue(k))", span: span,
+                hint: "pick(\"a\", \"b\") — keys are strings (jq's pick takes path expressions; jig's takes key strings)")
+        }
+        if out.contains(where: { $0.key == ks }) { continue }
+        if let v = input.member(ks) { out.append((key: ks, value: v)) }
+    }
+    return .object(out)
+}
+
+/// `omit(keys)` — drop the named keys of an object, keeping the remaining keys
+/// in their original order (es-toolkit omit). `keys` is a comma-stream of
+/// strings. jq has no `omit`.
+private func omitOf(_ keyFilter: Filter, on input: JigValue, _ span: SourceSpan) throws -> JigValue {
+    guard case .object(let pairs) = input else {
+        throw EvalError(
+            message: "cannot omit from \(input.typeName)\(shortValue(input))", span: span,
+            hint: "omit drops keys from an object — omit(\"a\", \"b\")")
+    }
+    var drop: Set<String> = []
+    for k in try evaluate(keyFilter, on: input) {
+        guard case .string(let ks) = k else {
+            throw EvalError(
+                message: "omit key must be a string, got \(k.typeName)\(shortValue(k))", span: span,
+                hint: "omit(\"a\", \"b\") — keys are strings")
+        }
+        drop.insert(ks)
+    }
+    return .object(pairs.filter { !drop.contains($0.key) })
 }
 
 /// Short value rendering for diagnostics — " (null)" / " (3)" / "" when long.

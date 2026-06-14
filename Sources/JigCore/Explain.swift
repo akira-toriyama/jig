@@ -228,6 +228,8 @@ func canonicalBuiltinName(_ name: String) -> String {
     case "map_values": return "mapValues"
     case "min_by": return "minBy"
     case "max_by": return "maxBy"
+    case "avg": return "mean"
+    case "avgBy": return "meanBy"
     // groupBy / orderBy / toPairs / fromPairs have no jq alias to fold:
     // `group_by` (array-of-arrays) and `to_entries` are a DIFFERENT shape and
     // intentionally not aliased; `sort_by`/`sortBy` is a Wave 2 alias; jq's
@@ -272,6 +274,11 @@ private func jsCall(_ name: String, _ args: [Filter], subject: String) -> String
     case ("countBy", 1): return "\(subject)/* countBy(\(render(args[0]))) */"
     case ("keyBy", 1): return "Object.fromEntries(\(subject).map(x => [\(jsChain(flattenPipe(args[0]), subject: "x")), x]))"
     case ("sumBy", 1): return "\(subject).reduce((a, x) => a + \(jsChain(flattenPipe(args[0]), subject: "x")), 0)"
+    case ("mean", 0), ("avg", 0): return "(\(subject).reduce((a, b) => a + b, 0) / \(subject).length)"
+    case ("meanBy", 1), ("avgBy", 1):
+        return "(\(subject).reduce((a, x) => a + \(jsChain(flattenPipe(args[0]), subject: "x")), 0) / \(subject).length)"
+    case ("pick", 1): return "\(subject)/* pick(\(render(args[0]))) */"
+    case ("omit", 1): return "\(subject)/* omit(\(render(args[0]))) */"
     default: return "\(subject)/* \(name) */"
     }
 }

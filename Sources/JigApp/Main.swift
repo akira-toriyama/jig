@@ -219,7 +219,10 @@ enum JigApp {
           countBy(f)       frequency table {key: count}
           keyBy(f)         index records into {key: record}
           sumBy(f)         projected sum (= map(f) | sum)
-          jq aliases (accepted, not canonical): type (=typeof), add (=sum), select (=filter), map_values (=mapValues), min_by (=minBy), max_by (=maxBy)
+          mean meanBy(f)   average of an array's numbers (empty → null)
+          pick(keys)       keep only these object keys (pick("a","b"))
+          omit(keys)       drop these object keys (omit("a","b"))
+          jq aliases (accepted, not canonical): type (=typeof), add (=sum), select (=filter), map_values (=mapValues), min_by (=minBy), max_by (=maxBy), avg (=mean), avgBy (=meanBy)
 
         FLAGS
           -c, --compact-output   one line per output (default: 2-space pretty)

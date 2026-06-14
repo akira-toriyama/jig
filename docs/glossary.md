@@ -202,6 +202,20 @@ object ⇄ `[[key, value], …]`（JS `Object.entries` / `Object.fromEntries`）
 - 所在: `countByOf` / `keyByOf` / `sumByOf` — [`Sources/JigCore/Builtins.swift`](../Sources/JigCore/Builtins.swift)
 - **Don't call it:** `INDEX`（jq の keyBy 相当の難解名）, group（countBy は要素でなく**数**を返す）
 
+### mean / meanBy
+配列の数値の**算術平均**。`meanBy(f)` は射影キー f の平均。空配列（と全射影が空）は
+**null**（NaN/undefined でなく＝JSON を壊さない）。非数値は humane エラー。jq alias
+`avg`/`avgBy`。例: `groupBy(.c) | mapValues(meanBy(.price))` ＝ カテゴリ別平均。
+- 所在: `meanOf` — [`Sources/JigCore/Builtins.swift`](../Sources/JigCore/Builtins.swift)
+- **Don't call it:** average（正典は `mean`・`avg` は alias）, `add/length`（空でエラー＝mean は null）
+
+### pick / omit
+オブジェクトのキー選択。`pick(keys)` は指定キーだけ残す（**要求順**・欠損キーはスキップ・
+null 値キーは残す）、`omit(keys)` は指定キーを落とす（**入力順**保持）。`keys` は文字列の
+comma-ストリーム（`pick("a", "b")` / 動的に `pick(.fields[])`）。
+- 所在: `pickOf` / `omitOf` — [`Sources/JigCore/Builtins.swift`](../Sources/JigCore/Builtins.swift)
+- **Don't call it:** jq `pick(pathexp)`（jq は**パス式**・jig は**キー文字列**＝別シェイプ）, `{a,b}` 構築（こちらは欠損で null を作る・pick は欠損をスキップ）, `pickBy`/`omitBy`（述語版・別物）
+
 ---
 
 ## データ model

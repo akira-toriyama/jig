@@ -208,4 +208,22 @@ final class ExplainTests: XCTestCase {
         XCTAssertEqual(jsEquivalent(try! parseFilter("sumBy(.x)")),
                        "input.reduce((a, x) => a + x.x, 0)")
     }
+
+    // MARK: Wave 1 — mean / pick / omit
+
+    func testRenderMeanPickOmitCanonical() {
+        // `avg` / `avgBy` are aliases of mean / meanBy; pick / omit are canonical.
+        XCTAssertEqual(render(try! parseFilter("avg")), "mean")
+        XCTAssertEqual(render(try! parseFilter("avgBy(.p)")), "meanBy(.p)")
+        // pick/omit keys are a comma-stream — re-renders with the comma intact.
+        XCTAssertEqual(render(try! parseFilter(#"pick("a", "b")"#)), #"pick("a", "b")"#)
+        XCTAssertEqual(render(try! parseFilter(#"omit("a")"#)), #"omit("a")"#)
+    }
+
+    func testJsMeanBuiltins() {
+        XCTAssertEqual(jsEquivalent(try! parseFilter("mean")),
+                       "(input.reduce((a, b) => a + b, 0) / input.length)")
+        XCTAssertEqual(jsEquivalent(try! parseFilter("meanBy(.p)")),
+                       "(input.reduce((a, x) => a + x.p, 0) / input.length)")
+    }
 }
