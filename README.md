@@ -79,10 +79,10 @@ ann
 bob
 cy
 
-$ jig -c '.maintainers | map(select(.active))' sample/project.json
+$ jig -c '.maintainers | map(filter(.active))' sample/project.json
 [{"name":"ann","active":true,"commits":128},{"name":"cy","active":true,"commits":7}]
 
-$ jig '.maintainers | map(.commits) | add' sample/project.json
+$ jig '.maintainers | map(.commits) | sum' sample/project.json
 177
 
 $ jig '.repo.big_id' sample/project.json          # 64-bit id, preserved exactly
