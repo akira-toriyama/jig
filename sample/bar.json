@@ -1,5 +1,0 @@
-[
-  { "id": 1, "item": "widget", "qty": 3, "price": 9.99,  "shipped": null },
-  { "id": 2, "item": "gadget", "qty": 1, "price": 19.5,  "shipped": true },
-  { "id": 3, "item": "gizmo",  "qty": 0, "price": 4.25,  "shipped": false }
-]

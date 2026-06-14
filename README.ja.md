@@ -61,8 +61,8 @@ jig は **意味論ひとつ** — モード切り替えは無い。より良い
 
 ```sh
 curl -s https://api.example.com/users | jig '.[] | .name'   # パイプから
-jig -r '.maintainers[].name' sample/foo.json                # ファイルから
-cat sample/foo.json | jig -c '.tags' -                      # `-` = stdin
+jig -r '.maintainers[].name' sample/project.json                # ファイルから
+cat sample/project.json | jig -c '.tags' -                      # `-` = stdin
 ```
 
 ### Try it
@@ -70,27 +70,27 @@ cat sample/foo.json | jig -c '.tags' -                      # `-` = stdin
 リポジトリに 2 つのサンプル ([`sample/`](sample/)) を同梱:
 
 ```console
-$ jig -r '.maintainers[] | .name' sample/foo.json
+$ jig -r '.maintainers[] | .name' sample/project.json
 ann
 bob
 cy
 
-$ jig -c '.maintainers | map(select(.active))' sample/foo.json
+$ jig -c '.maintainers | map(filter(.active))' sample/project.json
 [{"name":"ann","active":true,"commits":128},{"name":"cy","active":true,"commits":7}]
 
-$ jig '.maintainers | map(.commits) | add' sample/foo.json
+$ jig '.maintainers | map(.commits) | sum' sample/project.json
 177
 
-$ jig '.repo.big_id' sample/foo.json          # 64bit id をそのまま保存
+$ jig '.repo.big_id' sample/project.json          # 64bit id をそのまま保存
 12345678901234567890
 
-# // は false+null を落とす / ?? (nullish) は false を残す — bar.json で比較
-$ jig -c 'map(.shipped // "pending")' sample/bar.json
+# // は false+null を落とす / ?? (nullish) は false を残す — orders.json で比較
+$ jig -c 'map(.shipped // "pending")' sample/orders.json
 ["pending",true,"pending"]
-$ jig -c 'map(.shipped ?? "pending")' sample/bar.json
+$ jig -c 'map(.shipped ?? "pending")' sample/orders.json
 ["pending",true,false]
 
-$ jig -r '.maintainers[] | "\(.name) → \(.commits) commits"' sample/foo.json
+$ jig -r '.maintainers[] | "\(.name) → \(.commits) commits"' sample/project.json
 ann → 128 commits
 bob → 42 commits
 cy → 7 commits

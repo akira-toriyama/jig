@@ -170,7 +170,7 @@ input: stdin / file 引数 / `-`(=stdin)。whitespace 区切り複数 doc 可。
 exit:  0 ok / 2 usage・input / 3 compile / 5 runtime
 ```
 
-試用は同梱の [`sample/foo.json`](sample/foo.json) / [`sample/bar.json`](sample/bar.json)。
+試用は同梱の [`sample/project.json`](sample/project.json) / [`sample/orders.json`](sample/orders.json)。
 I/O 仕様は README の "Input / Output" に集約（clig.dev 準拠）。
 
 flag 名は jq と既知のものは一致させる（筋肉記憶の互換も互換のうち）。短 flag

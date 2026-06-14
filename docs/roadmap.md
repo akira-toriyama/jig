@@ -225,7 +225,7 @@ jig の新規性はパイプでなくここに全振りする。
 2. ✅ **バグ② explain `≈ JS:` の select 過剰ネスト修正**（done 2026-06-14）: `.[]` 後段を `jsStream()` で lower、select/filter は sibling `.filter(…)` に hoist、projection は `.map`/`.flatMap` に畳む。
 3. ✅ **jq-compat / dual-mode 撤去**（done 2026-06-14・決定①）: `Mode.swift` 削除、`--humane`/`JIG_MODE`/`# jig:humane` 撤去、`mode` 引数を evaluate/evalCall/evalLogical/explain から除去しモード1本化。README ×2 / CLAUDE / glossary / help / Package.swift / CONTRIBUTING / PR template / run.sh / homebrew formula を再ポジショニング、`docs/jq-compat.md` は SUPERSEDED バナー付きで保存。**意味論の確定（破壊的・記録）**: ↓ §8 の「2026-06-14 決定」。
 4. ✅ **es-toolkit / JS 名を正典化**（done 2026-06-14・決定①の②）: 実装が既にある builtin のみ昇格 ＝ `typeof`(←type) / `filter`(←select) / `sum`(←add)。help・explain step・error hint・`render()`（=fmt の種）は**正典のみ**を提示（`canonicalBuiltinName()` が単一の真実源）。**`sumBy`/`groupBy`/`orderBy`… は実装が未だ無いので step 5 へ**（alias だけ足すと未実装を指す）。
-5. **Wave1 合成セットで「小さく重ねる」を E2E 成立**（決定③）← **次セッションの最初の一歩**: `groupBy`(オブジェクト返し) / `mapValues` / `orderBy`(多キー) / `toPairs`・`fromPairs` ＋ 配列スライス `.[a:b]`（今 `unexpected :`）＋ `range`。`countBy` = `groupBy\|mapValues(length)`。正典化パターン（§5-4・`canonicalBuiltinName` + evalCall switch）に乗せる。
+5. **Wave1 合成セットで「小さく重ねる」を E2E 成立**（決定③）← **次セッションの最初の一歩**: `groupBy`(オブジェクト返し) / `mapValues` / `orderBy`(多キー) / `toPairs`・`fromPairs` ＋ 配列スライス `.[a:b]`（今 `unexpected :`）＋ `range`。`countBy` = `groupBy\|mapValues(length)`。正典化パターン（§5-4・`canonicalBuiltinName` + evalCall switch）に乗せる。**▶ 着手可能な実行プランは [docs/plan-wave1.md](plan-wave1.md)**（設計判断は解決済・ファイル別手順・要 user 確認は「引数 `;` vs `,`」1点）。
 6. **補完エンジン `jig complete`（B）**（決定②）: スキーマ認識の動的補完（builtin＋入力の実フィールド名）。**AI 呼び出し可** → **(C) 対話モード**（fish 風 ghost＋ライブプレビュー）→ **(A) 静的補完**同梱。詳細 §4。
 7. **`jig lint`**（or explain 拡張）: top-level `,` fan-out 注記
 8. `|>` レキサ・エイリアス（〜3行、`fmt`/render で `|` に正規化）
@@ -262,6 +262,6 @@ jig の新規性はパイプでなくここに全振りする。
   - **⚠️ 2026-06-14 意味論の確定（破壊的・`破壊的変更OK` 下でユーザ承認可能・要・最終確認）**:
     - **H2**: `.[]` を null に適用 → **常に空ストリーム**（旧 jq モード既定はエラー）。`.foo`/`.[N]` の null 伝播と一貫。非 null scalar は依然エラー（humane hint 付き）。
     - **H1**: `//` は **常に false+null を落とす**（jq 意味論・旧既定と同じ）。旧 humane の「`//` は false を残す」は**撤去**。理由＝`??` が nullish（null のみ）を担うので、`//` と `??` を**別物として維持**（同一化すると冗長）。能力の喪失なし。
-- **次セッションの起点**: §5 **(5) Wave1 合成セット**（`groupBy`/`mapValues`/`orderBy`/`toPairs`・`fromPairs` ＋ `.[a:b]` スライス ＋ `range`）。正典化パターン（§5-4）に乗せる。以降 §5 の (6) 補完エンジン `jig complete` → … の順。並行で新ビジョン spec 起草。
+- **次セッションの起点**: §5 **(5) Wave1 合成セット**（`groupBy`/`mapValues`/`orderBy`/`toPairs`・`fromPairs` ＋ `.[a:b]` スライス ＋ `range`）。**実行プラン正本 = [docs/plan-wave1.md](plan-wave1.md)**（2026-06-14 計画セッションで作製・設計判断解決済・最初の一歩 = `.[a:b]` スライス）。正典化パターン（§5-4）に乗せる。以降 §5 の (6) 補完エンジン `jig complete` → … の順。並行で新ビジョン spec 起草。
 - **撤去/更新待ち（決定①の波及）= 完了**: `--humane` 実体・README dual-mode 節・`--help` の "jq-compatible"・`docs/jq-compat.md`（SUPERSEDED 化）・CLAUDE の互換記述、いずれも 2026-06-14 で処理済。
 - 正本: 方向性は本ファイル。用語は [docs/glossary.md](glossary.md)、構造/制約/原則は [CLAUDE.md](../CLAUDE.md)。`docs/jq-compat.md` は歴史的参考（SUPERSEDED）。
