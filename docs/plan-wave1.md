@@ -147,7 +147,7 @@ jig の評価器は eager（`[JigValue]` を返す）なので range も**有限
 - `--help`（[Main.swift](../Sources/JigApp/Main.swift)）の FILTER/BUILTINS ブロック更新。
 - [glossary.md](glossary.md) に必要なら groupBy(≠group_by)/orderBy 等の term。
 - [roadmap.md](roadmap.md) §5(5) を ✅、§8 引き継ぎ更新、§2 例の `,`→`;` 修正（①）。
-- sample（sample/foo.json 等）に groupBy 映えする配列があるか確認、無ければ足す。
+- sample/orders.json は `category` 付き配列（`groupBy(.category)` 映え）。他に欲しければ足す。
 
 ---
 

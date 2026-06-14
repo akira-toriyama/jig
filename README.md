@@ -65,8 +65,8 @@ through `.foo` / `.[N]`), and the ECMAScript `??` gives nullish-only fallback
 
 ```sh
 curl -s https://api.example.com/users | jig '.[] | .name'   # from a pipe
-jig -r '.maintainers[].name' sample/foo.json                # from a file
-cat sample/foo.json | jig -c '.tags' -                      # `-` = stdin
+jig -r '.maintainers[].name' sample/project.json                # from a file
+cat sample/project.json | jig -c '.tags' -                      # `-` = stdin
 ```
 
 ### Try it
@@ -74,27 +74,27 @@ cat sample/foo.json | jig -c '.tags' -                      # `-` = stdin
 The repo ships two sample documents under [`sample/`](sample/):
 
 ```console
-$ jig -r '.maintainers[] | .name' sample/foo.json
+$ jig -r '.maintainers[] | .name' sample/project.json
 ann
 bob
 cy
 
-$ jig -c '.maintainers | map(select(.active))' sample/foo.json
+$ jig -c '.maintainers | map(select(.active))' sample/project.json
 [{"name":"ann","active":true,"commits":128},{"name":"cy","active":true,"commits":7}]
 
-$ jig '.maintainers | map(.commits) | add' sample/foo.json
+$ jig '.maintainers | map(.commits) | add' sample/project.json
 177
 
-$ jig '.repo.big_id' sample/foo.json          # 64-bit id, preserved exactly
+$ jig '.repo.big_id' sample/project.json          # 64-bit id, preserved exactly
 12345678901234567890
 
-# // drops false+null; ?? (nullish) keeps false — compare on sample/bar.json
-$ jig -c 'map(.shipped // "pending")' sample/bar.json
+# // drops false+null; ?? (nullish) keeps false — compare on sample/orders.json
+$ jig -c 'map(.shipped // "pending")' sample/orders.json
 ["pending",true,"pending"]
-$ jig -c 'map(.shipped ?? "pending")' sample/bar.json
+$ jig -c 'map(.shipped ?? "pending")' sample/orders.json
 ["pending",true,false]
 
-$ jig -r '.maintainers[] | "\(.name) → \(.commits) commits"' sample/foo.json
+$ jig -r '.maintainers[] | "\(.name) → \(.commits) commits"' sample/project.json
 ann → 128 commits
 bob → 42 commits
 cy → 7 commits
