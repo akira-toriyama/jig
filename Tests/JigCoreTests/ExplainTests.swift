@@ -146,4 +146,43 @@ final class ExplainTests: XCTestCase {
         // Non-identifier key → JS bracket access, never `input.`.
         XCTAssertEqual(jsEquivalent(try! parseFilter(#"{"a b"}"#)), #"({ "a b": input["a b"] })"#)
     }
+
+    // MARK: Wave 1 — slice (docs/plan-wave1.md)
+
+    func testRenderSliceRoundTrips() {
+        XCTAssertEqual(render(try! parseFilter(".[1:3]")), ".[1:3]")
+        XCTAssertEqual(render(try! parseFilter(".[2:]")), ".[2:]")
+        XCTAssertEqual(render(try! parseFilter(".[:3]")), ".[:3]")
+        XCTAssertEqual(render(try! parseFilter(".[:]")), ".[:]")
+        XCTAssertEqual(render(try! parseFilter(".[1:3]?")), ".[1:3]?")
+        // Pipe-explicit when it follows a term (like `.x[0]` → `.x | .[0]`).
+        XCTAssertEqual(render(try! parseFilter(".x[1:3]")), ".x | .[1:3]")
+    }
+
+    func testJsSliceUsesSliceMethod() {
+        XCTAssertEqual(jsEquivalent(try! parseFilter(".[1:3]")), "input.slice(1, 3)")
+        XCTAssertEqual(jsEquivalent(try! parseFilter(".[2:]")), "input.slice(2)")
+        XCTAssertEqual(jsEquivalent(try! parseFilter(".[:3]")), "input.slice(0, 3)")
+        XCTAssertEqual(jsEquivalent(try! parseFilter(".[:]")), "input.slice()")
+        XCTAssertEqual(jsEquivalent(try! parseFilter(".items[1:3]")), "input.items.slice(1, 3)")
+    }
+
+    // MARK: Wave 1 — builtins (canonical presentation + JS analogy)
+
+    func testRenderWave1BuiltinsCanonical() {
+        // `map_values` is the only jq alias to fold; the rest have no alias.
+        XCTAssertEqual(render(try! parseFilter("map_values(.x)")), "mapValues(.x)")
+        XCTAssertEqual(render(try! parseFilter("groupBy(.g)")), "groupBy(.g)")
+        XCTAssertEqual(render(try! parseFilter("orderBy(.a, .b)")), "orderBy(.a, .b)")
+    }
+
+    func testJsWave1Builtins() {
+        XCTAssertEqual(jsEquivalent(try! parseFilter("range(5)")),
+                       "Array.from({ length: 5 }, (_, i) => i)")
+        XCTAssertEqual(jsEquivalent(try! parseFilter("groupBy(.g)")), "Object.groupBy(input, x => x.g)")
+        XCTAssertEqual(jsEquivalent(try! parseFilter("mapValues(length)")),
+                       "Object.fromEntries(Object.entries(input).map(([k, v]) => [k, v.length]))")
+        XCTAssertEqual(jsEquivalent(try! parseFilter("toPairs")), "Object.entries(input)")
+        XCTAssertEqual(jsEquivalent(try! parseFilter("fromPairs")), "Object.fromEntries(input)")
+    }
 }

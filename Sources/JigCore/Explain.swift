@@ -51,6 +51,16 @@ private func jsChain(_ stages: [Filter], subject: String) -> String {
         case .index(let n, _, _):
             // JS Array.prototype.at handles negative indices like jq.
             expr += ".at(\(n))"
+        case .slice(let low, let high, _, _):
+            // JS Array/String.prototype.slice matches jq: negative bounds count
+            // from the end, an omitted high goes to the end. A bare `.[:b]` needs
+            // an explicit 0 low since JS can't omit only the first argument.
+            switch (low, high) {
+            case (nil, nil): expr += ".slice()"
+            case (let l?, nil): expr += ".slice(\(l))"
+            case (nil, let h?): expr += ".slice(0, \(h))"
+            case (let l?, let h?): expr += ".slice(\(l), \(h))"
+            }
         case .iterate:
             // Everything after `.[]` runs element-wise over the array. Hand the
             // remaining stages to jsStream so a following select/filter hoists
@@ -215,6 +225,10 @@ func canonicalBuiltinName(_ name: String) -> String {
     case "select": return "filter"
     case "type": return "typeof"
     case "add": return "sum"
+    case "map_values": return "mapValues"
+    // groupBy / orderBy / toPairs / fromPairs have no jq alias to fold:
+    // `group_by` (array-of-arrays) and `to_entries` are a DIFFERENT shape and
+    // intentionally not aliased; `sort_by`/`sortBy` is a Wave 2 alias.
     default: return name
     }
 }
@@ -233,6 +247,14 @@ private func jsCall(_ name: String, _ args: [Filter], subject: String) -> String
     case ("filter", 1), ("select", 1): return "\(subject).filter(\(cb(args[0])))"
     case ("has", 1): return "(\(render(args[0])) in \(subject))"
     case ("empty", 0): return "[]"
+    case ("range", 1): return "Array.from({ length: \(jsChain(flattenPipe(args[0]), subject: subject)) }, (_, i) => i)"
+    case ("range", 2), ("range", 3): return "/* range(\(args.map(render).joined(separator: "; "))) */"
+    case ("groupBy", 1): return "Object.groupBy(\(subject), \(cb(args[0])))"
+    case ("mapValues", 1), ("map_values", 1):
+        return "Object.fromEntries(Object.entries(\(subject)).map(([k, v]) => [k, \(jsChain(flattenPipe(args[0]), subject: "v"))]))"
+    case ("orderBy", 1): return "[...\(subject)].sort(/* by \(render(args[0])) */)"
+    case ("toPairs", 0): return "Object.entries(\(subject))"
+    case ("fromPairs", 0): return "Object.fromEntries(\(subject))"
     default: return "\(subject)/* \(name) */"
     }
 }
@@ -300,6 +322,13 @@ private func phrase(_ filter: Filter) -> String {
         return optional
             ? base + " — skip inputs that aren't arrays (?)"
             : base + " — error if the input isn't an array or null"
+    case .slice(let low, let high, let optional, _):
+        let lo = low.map(String.init) ?? "start"
+        let hi = high.map(String.init) ?? "end"
+        let base = "take the slice from \(lo) to \(hi) of the array or string (negative indices count from the end)"
+        return optional
+            ? base + " — skip inputs that aren't sliceable (?)"
+            : base + " — error if the input isn't an array, string, or null"
     case .iterate(let optional, _):
         var base = "iterate: emit each array element / object value"
         if optional {
@@ -362,6 +391,10 @@ public func render(_ filter: Filter) -> String {
         return ".\(name)\(optional ? "?" : "")"
     case .index(let n, let optional, _):
         return ".[\(n)]\(optional ? "?" : "")"
+    case .slice(let low, let high, let optional, _):
+        let lo = low.map(String.init) ?? ""
+        let hi = high.map(String.init) ?? ""
+        return ".[\(lo):\(hi)]\(optional ? "?" : "")"
     case .iterate(let optional, _):
         return ".[]\(optional ? "?" : "")"
     case .pipe(let a, let b):
@@ -435,7 +468,7 @@ private func renderObjectEntry(_ e: ObjectEntry) -> String {
 /// text would mis-associate (e.g. `(2 + 3) * 4` flattening to `2 + 3 * 4`).
 private func renderAtom(_ filter: Filter) -> String {
     switch filter {
-    case .identity, .field, .index, .iterate, .literal, .call,
+    case .identity, .field, .index, .slice, .iterate, .literal, .call,
          .arrayConstruct, .objectConstruct, .stringInterp:
         // A `"…"` (interpolated or not) is self-delimiting — an atom that needs
         // no parentheses, like a literal.

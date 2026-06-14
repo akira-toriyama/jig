@@ -103,4 +103,123 @@ final class BuiltinsTests: XCTestCase {
             XCTAssertNotNil(e.span)
         }
     }
+
+    // MARK: Wave 1 composition set (docs/plan-wave1.md)
+
+    func testRange() throws {
+        XCTAssertEqual(try run("[range(5)]", on: "null"), ["[0,1,2,3,4]"])
+        XCTAssertEqual(try run("[range(2;7)]", on: "null"), ["[2,3,4,5,6]"])
+        XCTAssertEqual(try run("[range(0;10;3)]", on: "null"), ["[0,3,6,9]"])
+        XCTAssertEqual(try run("[range(5;0;-2)]", on: "null"), ["[5,3,1]"])
+        XCTAssertEqual(try run("[range(0)]", on: "null"), ["[]"])
+        // range is a stream (not an array) — it emits each number.
+        XCTAssertEqual(try run("range(3)", on: "null"), ["0", "1", "2"])
+    }
+
+    func testRangeErrors() throws {
+        XCTAssertThrowsError(try run("range(0;5;0)", on: "null")) { error in
+            guard let e = error as? EvalError else { return XCTFail() }
+            XCTAssertTrue(e.message.contains("step cannot be zero"), e.message)
+        }
+        XCTAssertThrowsError(try run(#"range("x")"#, on: "null")) { error in
+            guard let e = error as? EvalError else { return XCTFail() }
+            XCTAssertTrue(e.message.contains("must be a number"), e.message)
+        }
+    }
+
+    func testGroupBy() throws {
+        XCTAssertEqual(
+            try run("groupBy(.g)", on: #"[{"g":"a","n":1},{"g":"b","n":2},{"g":"a","n":3}]"#),
+            [#"{"a":[{"g":"a","n":1},{"g":"a","n":3}],"b":[{"g":"b","n":2}]}"#])
+        // Numeric/boolean keys coerce to compact-JSON strings (the tostring rule).
+        XCTAssertEqual(try run("groupBy(.k)", on: #"[{"k":1},{"k":1},{"k":2}]"#),
+                       [#"{"1":[{"k":1},{"k":1}],"2":[{"k":2}]}"#])
+        // A null/missing key is a humane error, not a silent "null" bucket.
+        XCTAssertThrowsError(try run("groupBy(.missing)", on: #"[{"x":1}]"#)) { error in
+            guard let e = error as? EvalError else { return XCTFail() }
+            XCTAssertTrue(e.message.contains("keys must be string, number, or boolean"), e.message)
+        }
+        XCTAssertThrowsError(try run("groupBy(.x)", on: "5"))
+    }
+
+    func testMapValues() throws {
+        XCTAssertEqual(try run("mapValues(length)", on: #"{"a":[1,2],"b":[3,4,5]}"#),
+                       [#"{"a":2,"b":3}"#])
+        // Arrays keep order; an empty f output drops the entry (jq `.[] |= f`).
+        XCTAssertEqual(try run("mapValues(. + 10)", on: "[1,2,3]"), ["[11,12,13]"])
+        XCTAssertEqual(try run("mapValues(select(. > 1))", on: #"{"a":1,"b":2,"c":3}"#),
+                       [#"{"b":2,"c":3}"#])
+        // `map_values` is the accepted jq alias.
+        XCTAssertEqual(try run("map_values(. + 1)", on: #"{"a":1}"#), [#"{"a":2}"#])
+        XCTAssertThrowsError(try run("mapValues(.)", on: "5"))
+    }
+
+    func testToPairsAndFromPairs() throws {
+        XCTAssertEqual(try run("toPairs", on: #"{"a":1,"b":2}"#), [#"[["a",1],["b",2]]"#])
+        XCTAssertEqual(try run("fromPairs", on: #"[["a",1],["b",2]]"#), [#"{"a":1,"b":2}"#])
+        // Round-trip and last-wins on a duplicate key (first position kept).
+        XCTAssertEqual(try run("toPairs | fromPairs", on: #"{"x":10,"y":20}"#), [#"{"x":10,"y":20}"#])
+        XCTAssertEqual(try run("fromPairs", on: #"[["a",1],["a",9]]"#), [#"{"a":9}"#])
+        XCTAssertThrowsError(try run("toPairs", on: "5"))
+        XCTAssertThrowsError(try run("fromPairs", on: "[[1,2,3]]"))   // wrong arity
+        XCTAssertThrowsError(try run("fromPairs", on: "[[1,2]]"))     // non-string key
+    }
+
+    func testOrderBy() throws {
+        XCTAssertEqual(try run("orderBy(.age)", on: #"[{"age":30},{"age":10},{"age":20}]"#),
+                       [#"[{"age":10},{"age":20},{"age":30}]"#])
+        // Multi-key: comma forms the key TUPLE (a stream, not an arg separator).
+        XCTAssertEqual(
+            try run("orderBy(.d, .a)", on: #"[{"d":"x","a":2},{"d":"x","a":1},{"d":"a","a":9}]"#),
+            [#"[{"d":"a","a":9},{"d":"x","a":1},{"d":"x","a":2}]"#])
+        // Descending is composition, not a direction arg.
+        XCTAssertEqual(try run("orderBy(.age) | reverse", on: #"[{"age":30},{"age":10},{"age":20}]"#),
+                       [#"[{"age":30},{"age":20},{"age":10}]"#])
+        // Total order across types: null < false < true < number < string.
+        XCTAssertEqual(try run("orderBy(.)", on: #"[3,"b",null,true,1,"a",false]"#),
+                       [#"[null,false,true,1,3,"a","b"]"#])
+        XCTAssertEqual(try run("orderBy(.age)", on: "[]"), ["[]"])
+    }
+
+    func testOrderByIsStable() throws {
+        // Equal keys preserve input order (index tie-break).
+        XCTAssertEqual(
+            try run("orderBy(.k)", on: #"[{"k":1,"id":"a"},{"k":1,"id":"b"},{"k":0,"id":"c"}]"#),
+            [#"[{"k":0,"id":"c"},{"k":1,"id":"a"},{"k":1,"id":"b"}]"#])
+    }
+
+    func testOrderByMissingKeySortsAsNull() throws {
+        XCTAssertEqual(try run("orderBy(.age)", on: #"[{"age":5},{"x":1},{"age":2}]"#),
+                       [#"[{"x":1},{"age":2},{"age":5}]"#])
+    }
+
+    func testOrderByNonArrayErrors() throws {
+        XCTAssertThrowsError(try run("orderBy(.a)", on: #"{"a":1}"#)) { error in
+            guard let e = error as? EvalError else { return XCTFail() }
+            XCTAssertTrue(e.message.contains("cannot orderBy"), e.message)
+        }
+    }
+
+    // The `orderBy(.x, "desc")` footgun: a string literal is sorted as a constant
+    // key (a no-op), never a direction. jig flags it with a humane hint instead
+    // of silently doing nothing (principles §5).
+    func testOrderByStringLiteralKeyIsDiagnosed() throws {
+        for prog in [#"orderBy(.x, "desc")"#, #"orderBy("desc")"#] {
+            XCTAssertThrowsError(try run(prog, on: #"[{"x":1}]"#)) { error in
+                guard let e = error as? EvalError else { return XCTFail() }
+                XCTAssertTrue(e.message.contains("string literal"), e.message)
+                XCTAssertTrue((e.hint ?? "").contains("| reverse"), e.hint ?? "")
+            }
+        }
+        // A string PRODUCED by an expression is a legitimate key — not flagged.
+        XCTAssertEqual(try run(#"orderBy("\(.n)")"#, on: #"[{"n":"bo"},{"n":"al"}]"#),
+                       [#"[{"n":"al"},{"n":"bo"}]"#])
+    }
+
+    // The headline "small composables" goal (docs/plan-wave1.md): countBy is just
+    // groupBy then mapValues(length) — no dedicated builtin needed.
+    func testGroupByMapValuesComposesToCountBy() throws {
+        XCTAssertEqual(try run("groupBy(.g) | mapValues(length)", on: #"[{"g":"a"},{"g":"b"},{"g":"a"}]"#),
+                       [#"{"a":2,"b":1}"#])
+    }
 }

@@ -656,10 +656,25 @@ private struct FilterParser {
                 let optional = scanQuestion()
                 return .iterate(optional: optional, span: SourceSpan(start, pos))
             }
-            guard let n = scanInt() else {
-                throw unexpected("inside [ ] — expected an index number or \"]\"")
-            }
+            // An optional low bound, then a `:` makes it a slice (`.[a:b]`,
+            // either bound omittable) — otherwise the bound is a plain index.
+            let low = try scanInt()
             skipWhitespace()
+            if peek() == UInt8(ascii: ":") {
+                pos += 1
+                skipWhitespace()
+                let high = try scanInt()
+                skipWhitespace()
+                guard peek() == UInt8(ascii: "]") else {
+                    throw unexpected("inside a slice [a:b] — expected \"]\"")
+                }
+                pos += 1
+                let optional = scanQuestion()
+                return .slice(low: low, high: high, optional: optional, span: SourceSpan(start, pos))
+            }
+            guard let n = low else {
+                throw unexpected("inside [ ] — expected an index number, a slice a:b, or \"]\"")
+            }
             guard peek() == UInt8(ascii: "]") else {
                 throw unexpected("after the index — expected \"]\"")
             }
@@ -717,7 +732,12 @@ private struct FilterParser {
         }
     }
 
-    private mutating func scanInt() -> Int? {
+    /// Scan an optional signed integer for `.[N]` / a `.[a:b]` slice bound.
+    /// Returns nil when no digits are present (an omitted bound, e.g. `.[:b]`);
+    /// throws a located error when digits ARE consumed but overflow `Int` — so a
+    /// too-large bound is a humane error, not a silently dropped one that would
+    /// turn `.[HUGE:]` into `.[:]` (the whole collection).
+    private mutating func scanInt() throws -> Int? {
         let start = pos
         if peek() == UInt8(ascii: "-") { pos += 1 }
         let digitsStart = pos
@@ -725,7 +745,14 @@ private struct FilterParser {
             pos += 1
         }
         guard pos > digitsStart else { pos = start; return nil }
-        return Int(String(decoding: bytes[start..<pos], as: UTF8.self))
+        let text = String(decoding: bytes[start..<pos], as: UTF8.self)
+        guard let n = Int(text) else {
+            throw FilterParseError(
+                message: "the index \"\(text)\" is too large",
+                span: SourceSpan(start, pos),
+                hint: "array indices and slice bounds must fit a 64-bit integer")
+        }
+        return n
     }
 
     private mutating func scanQuestion() -> Bool {

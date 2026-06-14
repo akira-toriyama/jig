@@ -25,6 +25,13 @@ public indirect enum Filter: Sendable, Equatable {
     case field(name: String, optional: Bool, span: SourceSpan)
     /// `.[2]` / `.[-1]` / `.[2]?`
     case index(Int, optional: Bool, span: SourceSpan)
+    /// `.[a:b]` / `.[a:]` / `.[:b]` / `.[:]` / `.[a:b]?` — array/string SLICE.
+    /// Both bounds are optional (nil = unbounded: `.[2:]` keeps the tail, `.[:2]`
+    /// the head). Negative indices count from the end and the range is clamped,
+    /// like jq (`.[-2:]` is the last two; `low >= high` yields the empty
+    /// slice). Distinct from `.index`, which is array-only — a slice also works
+    /// on strings (by Unicode scalar, matching `length`).
+    case slice(low: Int?, high: Int?, optional: Bool, span: SourceSpan)
     /// `.[]` / `.[]?` — iterate array elements / object values.
     case iterate(optional: Bool, span: SourceSpan)
     /// `lhs | rhs`

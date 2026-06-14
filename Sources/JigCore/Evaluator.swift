@@ -60,6 +60,28 @@ public func evaluate(_ filter: Filter, on input: JigValue) throws -> [JigValue] 
                 hint: "use [\(n)]? to skip inputs where this isn't an array")
         }
 
+    case .slice(let low, let high, let optional, let span):
+        switch input {
+        case .array(let items):
+            let (l, h) = sliceBounds(low, high, items.count)
+            return l >= h ? [.array([])] : [.array(Array(items[l..<h]))]
+        case .string(let s):
+            // Slice by Unicode scalar, matching `length` (Builtins.lengthOf) and
+            // the total order's string comparison — not by grapheme cluster.
+            let scalars = Array(s.unicodeScalars)
+            let (l, h) = sliceBounds(low, high, scalars.count)
+            return l >= h ? [.string("")] : [.string(String(scalars[l..<h].map(Character.init)))]
+        case .null:
+            // null propagates quietly, like `.foo` / `.[N]`.
+            return [.null]
+        default:
+            if optional { return [] }
+            throw EvalError(
+                message: "cannot slice \(input.typeName)\(preview(input))",
+                span: span,
+                hint: "use .[a:b]? to skip inputs that aren't arrays or strings")
+        }
+
     case .iterate(let optional, let span):
         switch input {
         case .array(let items):
@@ -258,4 +280,19 @@ func truthy(_ v: JigValue) -> Bool {
 private func preview(_ v: JigValue) -> String {
     let s = writeJSON(v, style: .compact)
     return s.count <= 24 ? " (\(s))" : ""
+}
+
+/// Normalize a `.[low:high]` slice against a collection of `count` elements,
+/// returning a clamped half-open `[l, h)` range. An absent bound is the natural
+/// end (low → 0, high → count); a negative bound counts from the end (jq); the
+/// result is clamped to `[0, count]` so an out-of-range or inverted slice is the
+/// empty range rather than an error.
+private func sliceBounds(_ low: Int?, _ high: Int?, _ count: Int) -> (Int, Int) {
+    var l = low ?? 0
+    var h = high ?? count
+    if l < 0 { l += count }
+    if h < 0 { h += count }
+    l = max(0, min(l, count))
+    h = max(0, min(h, count))
+    return (l, h)
 }

@@ -1,5 +1,11 @@
 # 実行プラン — roadmap §5 step 5「Wave1 合成セット」
 
+> **✅ 実行済み（2026-06-14 実装セッション）。** A〜E すべて実装。`swift build`
+> clean ＋ 実機バイナリ smoke 一式 green（slice 各形・countBy E2E・各診断）。
+> XCTest goldens は追記済（SliceTests 新規・Builtins/Explain 増補）＝ CI が正。
+> 実装サマリと次の起点は [roadmap.md](roadmap.md) §5(5)・§8。**本ファイルは履歴**
+> （以下は計画時点の記述）。
+>
 > **これは「計画セッション（2026-06-14）」の成果物。実行は別セッション。**
 > 正本の方向性は [roadmap.md](roadmap.md)（§3 採用カタログ・§5 シーケンス）。
 > 本ファイルは step 5 を**着手可能な粒度**に分解し、未決の設計判断を解決したもの。
