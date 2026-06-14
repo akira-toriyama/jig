@@ -117,10 +117,11 @@ total order), logical `and` / `or`, unary minus `-x`, and builtins
 `length keys keys_unsorted typeof not reverse sum empty map(f) filter(f) has(k)`
 plus the Wave 1 composition + aggregation set
 `range(n) groupBy(f) mapValues(f) orderBy(f) toPairs fromPairs min max minBy(f)
-maxBy(f) uniq uniqBy(f) countBy(f) keyBy(f) sumBy(f)`
+maxBy(f) uniq uniqBy(f) countBy(f) keyBy(f) sumBy(f) mean meanBy(f) pick(keys)
+omit(keys)`
 (descending is `orderBy(f) | reverse`; `uniq` keeps order where jq's `unique`
 sorts). jq aliases `type` / `add` / `select` / `map_values` / `min_by` / `max_by`
-are accepted. Subcommands `jig explain` /
+/ `avg` / `avgBy` are accepted. Subcommands `jig explain` /
 `jig check`. Full surface and roadmap: [docs/roadmap.md](docs/roadmap.md).
 
 ## Input / Output

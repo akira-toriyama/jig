@@ -270,4 +270,42 @@ final class BuiltinsTests: XCTestCase {
                        try run("groupBy(.g) | mapValues(length)", on: #"[{"g":"a"},{"g":"b"},{"g":"a"}]"#))
         XCTAssertThrowsError(try run("keyBy(.id)", on: "5"))
     }
+
+    func testMeanAndMeanBy() throws {
+        XCTAssertEqual(try run("mean", on: "[1,2,3,4]"), ["2.5"])   // matches jq (add/length)
+        XCTAssertEqual(try run("mean", on: "[1,2]"), ["1.5"])
+        XCTAssertEqual(try run("mean", on: "[]"), ["null"])        // empty → null, not 0/NaN
+        XCTAssertEqual(try run("avg", on: "[2,4]"), ["3"])         // `avg` alias
+        XCTAssertEqual(try run("meanBy(.p)", on: #"[{"p":10},{"p":20},{"p":30}]"#), ["20"])
+        XCTAssertEqual(try run("avgBy(.p)", on: #"[{"p":10},{"p":20}]"#), ["15"])  // `avgBy` alias
+        XCTAssertThrowsError(try run("mean", on: #"[1,"x"]"#))     // non-numeric
+        XCTAssertThrowsError(try run("mean", on: "5"))             // non-array
+    }
+
+    // The averaging composition the substep unlocks: mean price per category.
+    func testGroupByMeanByComposes() throws {
+        XCTAssertEqual(
+            try run("groupBy(.c) | mapValues(meanBy(.price))",
+                    on: #"[{"c":"t","price":10},{"c":"t","price":20},{"c":"y","price":5}]"#),
+            [#"{"t":15,"y":5}"#])
+    }
+
+    func testPick() throws {
+        // Keys are kept in the ORDER REQUESTED (es-toolkit pick).
+        XCTAssertEqual(try run(#"pick("c","a")"#, on: #"{"a":1,"b":2,"c":3}"#), [#"{"c":3,"a":1}"#])
+        // A missing key is skipped; an existing null-valued key is kept.
+        XCTAssertEqual(try run(#"pick("a","z","nope")"#, on: #"{"a":1,"z":null}"#), [#"{"a":1,"z":null}"#])
+        // Dynamic keys from the data (comma-stream is any key-producing filter).
+        XCTAssertEqual(try run("pick(.keys[])", on: #"{"a":1,"b":2,"c":3,"keys":["a","c"]}"#), [#"{"a":1,"c":3}"#])
+        XCTAssertThrowsError(try run(#"pick("a")"#, on: "[1,2]"))   // non-object
+        XCTAssertThrowsError(try run("pick(1)", on: #"{"a":1}"#))   // non-string key
+    }
+
+    func testOmit() throws {
+        // Remaining keys keep their ORIGINAL order (es-toolkit omit).
+        XCTAssertEqual(try run(#"omit("b")"#, on: #"{"a":1,"b":2,"c":3}"#), [#"{"a":1,"c":3}"#])
+        XCTAssertEqual(try run(#"omit("a","c")"#, on: #"{"a":1,"b":2,"c":3}"#), [#"{"b":2}"#])
+        XCTAssertEqual(try run(#"omit("nope")"#, on: #"{"a":1}"#), [#"{"a":1}"#])
+        XCTAssertThrowsError(try run(#"omit("a")"#, on: "5"))
+    }
 }
